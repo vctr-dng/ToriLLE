@@ -18,6 +18,7 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 #
+import numbers
 import os
 import pprint
 import shutil
@@ -280,19 +281,16 @@ class ToribashSettings:
         Checks that current given settings are valid for Toribash.
         Otherwise Toribash will go quiet, pout and then disappear :(
         """
-        # 1-19 should be numbers
-        for i, value in enumerate(self.settings[1:19]):
-            if not type(value) in (float, int):
-                raise ValueError(
-                    (
-                        "Setting {} was not of correct type: "
-                        + "Expected float/int, got {}"
-                    ).format(
-                        list(ToribashSettings.DEFAULT_SETTINGS.keys())[i], type(value)
-                    )
+        # 1-19 should be numbers (numpy scalars included)
+        keys = list(ToribashSettings.DEFAULT_SETTINGS.keys())
+        for key, value in zip(keys[1:19], self.settings[1:19], strict=True):
+            if isinstance(value, bool) or not isinstance(value, numbers.Real):
+                raise ValueError(  # noqa: TRY004 - consistent with other checks
+                    f"Setting {key} was not of correct type: "
+                    f"Expected float/int, got {type(value)}"
                 )
 
-        # 3rd value (turnframes) should be from interval [2,matchframes]
+        # 3rd value (turnframes) should be from interval [1,matchframes]
         if self.settings[2] < 1 or self.settings[2] > self.settings[1]:
             raise ValueError(
                 "Setting 'turnframes' should be from interval " + "[1,matchframes]."
