@@ -109,8 +109,8 @@ class DuoToriEnv(ToriEnv):
         # For both players, relative position of both players
         # (Two perspectives, two players -> 4 * number of limbs)
         self.observation_space = spaces.Box(
-            low=-30,
-            high=30,
+            low=-np.inf,
+            high=np.inf,
             dtype=np.float32,
             shape=(torille.constants.NUM_LIMBS * 3 * 2 * 2,),
         )
@@ -123,8 +123,7 @@ class DuoToriEnv(ToriEnv):
         obs[0, 0, 4, 2] = state.limb_positions[0, 4, 2]
         obs[1, 1, 4, 2] = state.limb_positions[1, 4, 2]
 
-        obs = state.limb_positions.ravel()
-        return obs
+        return obs.ravel().astype(np.float32)
 
     def _preprocess_action(self, action):
         # Add +1 to limb actions (to make [0,3] -> [1,4])

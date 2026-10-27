@@ -1,6 +1,6 @@
 -- Native Linux controller for ToriLLE.
 -- LuaSocket cannot be loaded by the native Steam client, so this script uses
--- atomic files in ./ .torille (the game is launched from its install directory).
+-- atomic files in .torille at the game root.
 
 local BRIDGE = ".torille/"
 local SETTINGS = BRIDGE .. "settings"
@@ -17,24 +17,23 @@ local replay_file = "None"
 local game_mod = "classic"
 
 local function read_file(path)
-    local file = io.open(path, "r")
+    local file = io.open(path, "r", true)
     if file == nil then return nil end
     local content = file:read("*a")
     file:close()
-    os.remove(path)
+    local cleared = io.open(path, "w", true)
+    if cleared ~= nil then cleared:close() end
     return content
 end
 
 local function write_file(path, content)
-    local temporary = path .. ".tmp"
-    local file = io.open(temporary, "w")
+    local file = io.open(path, "w", true)
     if file == nil then
-        echo("ToriLLE cannot write " .. temporary)
+        echo("ToriLLE cannot write " .. path)
         return
     end
     file:write(content)
     file:close()
-    os.rename(temporary, path)
 end
 
 local function split_numbers(content)

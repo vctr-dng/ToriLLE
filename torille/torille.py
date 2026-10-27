@@ -89,6 +89,19 @@ class NativeFileBridge:
         raise TimeoutError("Timed out waiting for state from native Toribash")
 
 
+class NativeSteamProcess:
+    """Minimal process handle for a game spawned asynchronously by Steam."""
+
+    def __init__(self, pid):
+        self.pid = pid
+
+    def kill(self):
+        try:
+            os.kill(self.pid, 9)
+        except ProcessLookupError:
+            pass
+
+
 class ToribashState:
     """
     Class for storing and processing the state representations
@@ -451,6 +464,40 @@ class ToribashControl:
     def _write_native_settings(self):
         self.native_bridge.write_settings(self.draw_game, self.settings.settings)
 
+    def _native_game_pids(self):
+        executable = os.path.realpath(self.executable_path)
+        pids = []
+        for process_path in Path("/proc").iterdir():
+            if not process_path.name.isdigit():
+                continue
+            try:
+                command = (process_path / "cmdline").read_bytes().split(b"\0", 1)[0]
+            except OSError:
+                continue
+            if command and os.path.realpath(os.fsdecode(command)) == executable:
+                pids.append(int(process_path.name))
+        return pids
+
+    def _launch_native_game(self):
+        steam = shutil.which("steam")
+        if steam is None:
+            raise RuntimeError("Steam is required to launch native Toribash on Linux")
+        if self._native_game_pids():
+            raise RuntimeError("Native Toribash is already running")
+
+        subprocess.Popen(
+            (steam, "-applaunch", constants.STEAM_APP_ID),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        deadline = time.monotonic() + constants.TIMEOUT
+        while time.monotonic() < deadline:
+            pids = self._native_game_pids()
+            if pids:
+                return NativeSteamProcess(pids[0])
+            time.sleep(0.1)
+        raise TimeoutError("Steam did not start native Toribash")
+
     def init(self):
         """
         Actual init: Launch the game process, wait for connection and
@@ -474,12 +521,7 @@ class ToribashControl:
                 self._install_native_controller()
                 self.settings.validate_settings()
                 self._write_native_settings()
-                self.process = subprocess.Popen(
-                    (self.executable_path,),
-                    cwd=os.path.dirname(self.executable_path),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+                self.process = self._launch_native_game()
             elif sys.platform == "win32":
                 # Launch on Windows (just call the .exe)
                 # Don't try to set stderr.txt to read-only: This will

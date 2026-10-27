@@ -50,6 +50,9 @@ PACKAGE_TORIBASH_EXE = os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "toribash", "toribash.exe"
 )
 
+# Steam application ID for the native Toribash client.
+STEAM_APP_ID = "248570"
+
 
 def get_platform_executable(platform=None):
     """Return the default native Toribash executable for the current platform."""

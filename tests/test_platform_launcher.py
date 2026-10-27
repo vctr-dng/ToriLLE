@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import gymnasium as gym
+import numpy as np
+
+import torille
 from torille import constants
+from torille.envs import DuoToriEnv, SoloToriEnv, UkeToriEnv
 from torille.envs.gym_env import ToriEnv
 from torille.torille import ToribashControl
 
@@ -18,6 +23,15 @@ class _TestEnv(ToriEnv):
 
     def _reward_function(self, old_state, new_state):
         return 1.0
+
+
+class _State:
+    def __init__(self):
+        self.limb_positions = np.zeros((2, constants.NUM_LIMBS, 3))
+        self.limb_positions[0, 4, 2] = 1000
+
+    def get_normalized_locations(self):
+        return np.zeros((2, 2, constants.NUM_LIMBS, 3))
 
 
 class PlatformExecutableTests(unittest.TestCase):
@@ -76,7 +90,21 @@ class NativeLauncherTests(unittest.TestCase):
                 profile.read_text(encoding="utf-8"), "# Existing profile\n"
             )
 
-    def test_linux_launches_native_executable_directly(self):
+    def test_native_controller_uses_game_root_for_bridge_files(self):
+        script = (
+            Path(torille.__file__).parent
+            / "toribash"
+            / "data"
+            / "script"
+            / "remotecontrol_native.lua"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('io.open(path, "r", true)', script)
+        self.assertIn('io.open(path, "w", true)', script)
+        self.assertNotIn("os.rename", script)
+        self.assertNotIn("os.remove", script)
+
+    def test_linux_launches_native_game_through_steam(self):
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / "toribash_steam"
             executable.touch()
@@ -85,6 +113,12 @@ class NativeLauncherTests(unittest.TestCase):
                 patch("torille.torille.utils.check_linux_sanity"),
                 patch("torille.torille.utils.set_file_readonly"),
                 patch("torille.torille.NativeFileBridge") as bridge,
+                patch("torille.torille.shutil.which", return_value="steam"),
+                patch.object(
+                    ToribashControl,
+                    "_native_game_pids",
+                    side_effect=[[], [1234]],
+                ),
                 patch("torille.torille.subprocess.Popen") as popen,
             ):
                 controller = ToribashControl(
@@ -93,16 +127,29 @@ class NativeLauncherTests(unittest.TestCase):
                 controller.init()
 
             popen.assert_called_once_with(
-                (str(executable),),
-                cwd=str(executable.parent),
+                ("steam", "-applaunch", constants.STEAM_APP_ID),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
             bridge.return_value.write_settings.assert_called_once()
             controller.process = None
 
+    def test_linux_rejects_an_existing_toribash_game(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "toribash_steam"
+            executable.touch()
+            with (
+                patch("torille.torille.shutil.which", return_value="steam"),
+                patch.object(ToribashControl, "_native_game_pids", return_value=[1234]),
+                self.assertRaisesRegex(RuntimeError, "already running"),
+            ):
+                ToribashControl(executable=str(executable))._launch_native_game()
+
 
 class GymExecutableTests(unittest.TestCase):
+    def test_import_registers_toribash_environments(self):
+        self.assertIn("Toribash-DestroyUke-v0", gym.envs.registry)
+
     def test_environment_forwards_executable_to_controller(self):
         with patch("torille.envs.gym_env.torille.ToribashControl") as controller:
             ToriEnv(executable="/opt/toribash_steam", matchframes=100)
@@ -127,3 +174,15 @@ class GymExecutableTests(unittest.TestCase):
         self.assertIs(observation, state)
         self.assertEqual(info, {})
         self.assertEqual(result, (state, 1.0, False, False, {}))
+
+    def test_environment_observations_match_declared_spaces(self):
+        state = _State()
+        with patch.object(ToriEnv, "__init__", return_value=None):
+            solo = SoloToriEnv(reward_func=lambda *_: 0)
+            uke = UkeToriEnv(reward_func=lambda *_: 0, random_uke=False)
+            duo = DuoToriEnv(reward_func=lambda *_: 0)
+
+        for environment in (solo, uke, duo):
+            observation = environment._preprocess_observation(state)
+            self.assertEqual(observation.dtype, np.float32)
+            self.assertTrue(environment.observation_space.contains(observation))
