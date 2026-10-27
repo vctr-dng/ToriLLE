@@ -1,6 +1,6 @@
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import gymnasium as gym
 import numpy as np
@@ -10,7 +10,7 @@ import torille
 from torille import constants
 from torille.envs import DuoToriEnv, SoloToriEnv, UkeToriEnv
 from torille.envs.gym_env import ToriEnv
-from torille.torille import ToribashControl
+from torille.torille import ToribashControl, ToribashState
 
 
 class _StubEnv(ToriEnv):
@@ -146,18 +146,60 @@ def test_environment_forwards_executable_to_controller():
     assert controller.call_args.kwargs["settings"].get("matchframes") == 100
 
 
-def test_environment_uses_gymnasium_reset_and_step_results():
-    state = MagicMock()
+def _make_state(match_frame=10, match_length=100, winner=None):
+    state = ToribashState([0.0] * constants.STATE_LENGTH, winner=winner)
+    state.match_frame = match_frame
+    state.match_length = match_length
+    return state
+
+
+def _step_once(state, terminal):
     with patch("torille.envs.gym_env.torille.ToribashControl") as controller:
-        controller.return_value.get_state.return_value = (state, False)
+        controller.return_value.get_state.side_effect = [
+            (_make_state(), False),
+            (state, terminal),
+        ]
+        environment = _StubEnv(executable="/opt/toribash_steam")
+        environment.reset()
+        return environment.step([[1] * 22, [1] * 22])
+
+
+def test_environment_uses_gymnasium_reset_and_step_results():
+    first = _make_state()
+    with patch("torille.envs.gym_env.torille.ToribashControl") as controller:
+        controller.return_value.get_state.side_effect = [
+            (first, False),
+            (_make_state(match_frame=15), False),
+        ]
         environment = _StubEnv(executable="/opt/toribash_steam")
 
         observation, info = environment.reset(seed=3)
-        result = environment.step([[1] * 22, [1] * 22])
+        _obs, reward, terminated, truncated, info = environment.step(
+            [[1] * 22, [1] * 22]
+        )
 
-    assert observation is state
-    assert info == {}
-    assert result == (state, 1.0, False, False, {})
+    assert observation is first
+    assert reward == 1.0
+    assert (terminated, truncated) == (False, False)
+    assert info["match_frame"] == 15
+    assert info["winner"] is None
+
+
+def test_reaching_match_length_is_truncation():
+    _, _, terminated, truncated, info = _step_once(
+        _make_state(match_frame=100, match_length=100, winner=2), terminal=True
+    )
+
+    assert (terminated, truncated) == (False, True)
+    assert info["winner"] == 2
+
+
+def test_early_game_end_is_termination():
+    _, _, terminated, truncated, _ = _step_once(
+        _make_state(match_frame=40, match_length=100, winner=1), terminal=True
+    )
+
+    assert (terminated, truncated) == (True, False)
 
 
 def test_environment_observations_match_declared_spaces():

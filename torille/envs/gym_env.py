@@ -125,7 +125,16 @@ class ToriEnv(gym.Env):
         self.old_state = state
         # "obs" here is in the Gym format. "state" is ToribashState
         obs = self._preprocess_observation(state)
-        return obs, reward, terminal, False, {}
+        # Reaching the match length is a time limit (truncation). Any other
+        # end of the game is a natural ending of the task (termination).
+        truncated = terminal and state.match_frame >= state.match_length
+        terminated = terminal and not truncated
+        info = {
+            "winner": state.winner,
+            "injuries": state.injuries.copy(),
+            "match_frame": state.match_frame,
+        }
+        return obs, reward, terminated, truncated, info
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
