@@ -39,10 +39,12 @@ class ToriEnv(gym.Env):
         _reward_function
     """
 
-    def __init__(self, executable=None, **kwargs):
+    def __init__(self, executable=None, install_native_controller=True, **kwargs):
         self.settings = torille.ToribashSettings(**kwargs)
         self.game = torille.ToribashControl(
-            settings=self.settings, executable=executable
+            settings=self.settings,
+            executable=executable,
+            install_native_controller=install_native_controller,
         )
 
         # Previous state (ToribashState)

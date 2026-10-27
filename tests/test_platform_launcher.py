@@ -56,22 +56,40 @@ class PlatformExecutableTests(unittest.TestCase):
 
 
 class NativeLauncherTests(unittest.TestCase):
+    def test_native_controller_is_removed_from_profile_on_close(self):
+        with tempfile.TemporaryDirectory() as directory:
+            game_directory = Path(directory)
+            executable = game_directory / "toribash_steam"
+            executable.touch()
+            script_directory = game_directory / "data" / "script"
+            script_directory.mkdir(parents=True)
+            profile = game_directory / "profile.tbs"
+            profile.write_text("# Existing profile\n", encoding="utf-8")
+
+            controller = ToribashControl(executable=str(executable))
+            controller._install_native_controller()
+
+            self.assertTrue((script_directory / "remotecontrol_native.lua").is_file())
+            self.assertIn("ls remotecontrol_native.lua", profile.read_text())
+            controller._restore_native_profile()
+            self.assertEqual(
+                profile.read_text(encoding="utf-8"), "# Existing profile\n"
+            )
+
     def test_linux_launches_native_executable_directly(self):
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / "toribash_steam"
             executable.touch()
-            connection = MagicMock()
-            listener = MagicMock()
-            listener.accept.return_value = (connection, ("127.0.0.1", 7788))
-
             with (
                 patch("torille.torille.sys.platform", "linux"),
                 patch("torille.torille.utils.check_linux_sanity"),
                 patch("torille.torille.utils.set_file_readonly"),
-                patch("torille.torille.socket.socket", return_value=listener),
+                patch("torille.torille.NativeFileBridge") as bridge,
                 patch("torille.torille.subprocess.Popen") as popen,
             ):
-                controller = ToribashControl(executable=str(executable))
+                controller = ToribashControl(
+                    executable=str(executable), install_native_controller=False
+                )
                 controller.init()
 
             popen.assert_called_once_with(
@@ -80,6 +98,7 @@ class NativeLauncherTests(unittest.TestCase):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            bridge.return_value.write_settings.assert_called_once()
             controller.process = None
 
 

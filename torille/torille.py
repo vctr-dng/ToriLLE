@@ -20,18 +20,73 @@
 #
 import os
 import pprint
+import shutil
 import socket
 import subprocess
 import sys
+import time
 import warnings
 from collections import OrderedDict
 from copy import deepcopy
+from pathlib import Path
 from typing import ClassVar
 
 import numpy as np
 from filelock import FileLock
 
 from . import constants, utils
+
+
+class NativeFileBridge:
+    """Exchange controller messages with the native Lua script via game-local files."""
+
+    def __init__(self, game_directory):
+        self.directory = Path(game_directory) / ".torille"
+        self.state_path = self.directory / "state"
+        self.action_path = self.directory / "action"
+        self.settings_path = self.directory / "settings"
+        self.reset_path = self.directory / "reset"
+
+    def prepare(self):
+        self.directory.mkdir(exist_ok=True)
+        for path in (
+            self.state_path,
+            self.action_path,
+            self.settings_path,
+            self.reset_path,
+        ):
+            path.unlink(missing_ok=True)
+
+    def _write(self, path, content):
+        temporary_path = path.with_suffix(".tmp")
+        temporary_path.write_text(content, encoding="utf-8")
+        temporary_path.replace(path)
+
+    def write_settings(self, draw_game, settings):
+        self._write(
+            self.settings_path,
+            f"{int(draw_game)}\n{','.join(map(str, settings))}\n",
+        )
+
+    def send_actions(self, actions):
+        self._write(self.action_path, ",".join(map(str, actions)) + "\n")
+
+    def request_reset(self):
+        self._write(self.reset_path, "reset\n")
+
+    def receive_state(self, timeout):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                state = self.state_path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                time.sleep(0.01)
+                continue
+            if state:
+                self.state_path.unlink(missing_ok=True)
+                return state.encode()
+            time.sleep(0.01)
+        raise TimeoutError("Timed out waiting for state from native Toribash")
 
 
 class ToribashState:
@@ -280,7 +335,12 @@ class ToribashControl:
     """Main class controlling one instance of Toribash"""
 
     def __init__(
-        self, settings=None, draw_game=False, executable=None, port=constants.PORT
+        self,
+        settings=None,
+        draw_game=False,
+        executable=None,
+        port=constants.PORT,
+        install_native_controller=True,
     ):
         """
         Parameters:
@@ -288,15 +348,20 @@ class ToribashControl:
                       provided, else defaults to default settings.
             draw_game: If True, will render the game and limit the FPS.
                        Defaults to False.
-            executable: String of path to the toribash.exe launching the game.
-                        Defaults to path used with pip-installed package.
+            executable: Optional path to the native Toribash executable.
             port: Port used to listen for connections from Toribash.
                   Defaults to constants.PORT.
                   NOTE: You have to change port in Toribash Lua script as well!
-                         (in {toribash dir}/data/script/remotecontrol.lua )
+                          (in {toribash dir}/data/script/remotecontrol.lua )
+            install_native_controller: Install the native Linux controller script
+                                       for the lifetime of this instance.
         """
         self.process = None
         self.connection = None
+        self.native_bridge = None
+        self._profile_path = None
+        self._original_profile = None
+        self.install_native_controller = install_native_controller
         default_executable = constants.get_platform_executable()
         self.executable_path = executable or default_executable
         # Make sure exe exists
@@ -343,6 +408,49 @@ class ToribashControl:
         if self.process is None:
             raise RuntimeError("Controlled not initialized with `init()`")
 
+    def _install_native_controller(self):
+        if not self.install_native_controller:
+            return
+
+        game_directory = Path(self.executable_path).parent
+        source = (
+            Path(__file__).parent
+            / "toribash"
+            / "data"
+            / "script"
+            / "remotecontrol_native.lua"
+        )
+        destination = game_directory / "data" / "script" / source.name
+        if not source.is_file():
+            raise RuntimeError(f"Native controller script is missing: {source}")
+        if not destination.parent.is_dir():
+            raise RuntimeError(
+                f"Toribash script directory does not exist: {destination.parent}"
+            )
+        shutil.copyfile(source, destination)
+
+        self._profile_path = game_directory / "profile.tbs"
+        self._original_profile = (
+            self._profile_path.read_text(encoding="utf-8")
+            if self._profile_path.exists()
+            else ""
+        )
+        command = f"ls {source.name}"
+        if command not in self._original_profile.splitlines():
+            profile = self._original_profile
+            if profile and not profile.endswith("\n"):
+                profile += "\n"
+            self._profile_path.write_text(profile + command + "\n", encoding="utf-8")
+
+    def _restore_native_profile(self):
+        if self._profile_path is not None and self._original_profile is not None:
+            self._profile_path.write_text(self._original_profile, encoding="utf-8")
+        self._profile_path = None
+        self._original_profile = None
+
+    def _write_native_settings(self):
+        self.native_bridge.write_settings(self.draw_game, self.settings.settings)
+
     def init(self):
         """
         Actual init: Launch the game process, wait for connection and
@@ -359,6 +467,13 @@ class ToribashControl:
                 # Attempt to make stderr.txt read-only
                 # TODO this will cause headache when trying to remove torille
                 _ = utils.set_file_readonly(self.toribash_stderr_file)
+                self.native_bridge = NativeFileBridge(
+                    os.path.dirname(self.executable_path)
+                )
+                self.native_bridge.prepare()
+                self._install_native_controller()
+                self.settings.validate_settings()
+                self._write_native_settings()
                 self.process = subprocess.Popen(
                     (self.executable_path,),
                     cwd=os.path.dirname(self.executable_path),
@@ -376,42 +491,45 @@ class ToribashControl:
                 )
             else:
                 raise RuntimeError(f"Unsupported Toribash platform: {sys.platform}")
-            # Create socket for waiting for Toribash to connect
-            s = socket.socket()
-            # This allows rebinding to same address multiple times on *nix
-            # Otherwise you will get "address in use" if you launch multiple
-            # Toribash instances on same computer
-            # From Stackoverflow #6380057
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(("", self.port))
-            s.settimeout(constants.TIMEOUT)
-            s.listen(1)
-            conn, _addr = s.accept()
-            # Close the listener socket
-            s.close()
-
-            # Set the timeout for connection
-            conn.settimeout(constants.TIMEOUT)
-
-            self.connection = conn
+            if sys.platform == "win32":
+                # Create socket for waiting for Toribash to connect.
+                s = socket.socket()
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(("", self.port))
+                s.settimeout(constants.TIMEOUT)
+                s.listen(1)
+                conn, _addr = s.accept()
+                s.close()
+                conn.settimeout(constants.TIMEOUT)
+                self.connection = conn
         # Set get_state to be first call
         self.requires_get_state = True
 
-        # Send handshake
-        self._send_comma_list(self.connection, [int(self.draw_game)])
-        self._send_settings()
+        if sys.platform == "win32":
+            self._send_comma_list(self.connection, [int(self.draw_game)])
+            self._send_settings()
 
     def close(self):
         """Close the running Toribash instance and clean up"""
         self._check_if_initialized()
-        self.connection.close()
+        if self.connection is not None:
+            self.connection.close()
         # No need to be gentle here
-        self.process.kill()
+        process = self.process
+        self.process = None
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        finally:
+            self._restore_native_profile()
 
     def _recv_line(self, s):
         """
         Call recv till data ends with ToribashConstant.MESSAGE_END
         """
+        if self.native_bridge is not None:
+            return self.native_bridge.receive_state(constants.TIMEOUT)
         # First wait till there is something to read
         ret = s.recv(constants.BUFFER_SIZE)
         # Now check if we had "\n", and continue reading till we have it
@@ -454,6 +572,9 @@ class ToribashControl:
             s: The socket where to send the data
             data: List of values to be sent
         """
+        if self.native_bridge is not None:
+            self.native_bridge.send_actions(data)
+            return
         # We need to add end of line for the luasocket "*l"
         data = ",".join(map(str, data)) + "\n"
         s.sendall(data.encode())
@@ -464,6 +585,10 @@ class ToribashControl:
         """
         # Validate settings
         self.settings.validate_settings()
+        if self.native_bridge is not None:
+            self._write_native_settings()
+            self.native_bridge.request_reset()
+            return
         self._send_comma_list(self.connection, self.settings.settings)
 
     def get_state(self):
