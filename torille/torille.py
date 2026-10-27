@@ -58,6 +58,9 @@ class NativeFileBridge:
         ):
             path.unlink(missing_ok=True)
 
+    def cleanup(self):
+        shutil.rmtree(self.directory, ignore_errors=True)
+
     def _write(self, path, content):
         temporary_path = path.with_suffix(".tmp")
         temporary_path.write_text(content, encoding="utf-8")
@@ -387,6 +390,7 @@ class ToribashControl:
         self.native_bridge = None
         self._profile_path = None
         self._original_profile = None
+        self._installed_script = None
         self.install_native_controller = install_native_controller
         default_executable = constants.get_platform_executable()
         self.executable_path = executable or default_executable
@@ -454,6 +458,7 @@ class ToribashControl:
                 f"Toribash script directory does not exist: {destination.parent}"
             )
         shutil.copyfile(source, destination)
+        self._installed_script = destination
 
         self._profile_path = game_directory / "profile.tbs"
         self._original_profile = (
@@ -473,6 +478,9 @@ class ToribashControl:
             self._profile_path.write_text(self._original_profile, encoding="utf-8")
         self._profile_path = None
         self._original_profile = None
+        if self._installed_script is not None:
+            self._installed_script.unlink(missing_ok=True)
+            self._installed_script = None
 
     def _write_native_settings(self):
         self.native_bridge.write_settings(self.draw_game, self.settings.settings)
@@ -578,6 +586,8 @@ class ToribashControl:
             pass
         finally:
             self._restore_native_profile()
+            if self.native_bridge is not None:
+                self.native_bridge.cleanup()
 
     def _recv_line(self, s):
         """

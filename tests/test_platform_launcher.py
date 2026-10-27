@@ -1,6 +1,6 @@
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import gymnasium as gym
 import numpy as np
@@ -10,7 +10,7 @@ import torille
 from torille import constants
 from torille.envs import DuoToriEnv, SoloToriEnv, UkeToriEnv
 from torille.envs.gym_env import ToriEnv
-from torille.torille import ToribashControl, ToribashState
+from torille.torille import NativeFileBridge, ToribashControl, ToribashState
 
 
 class _StubEnv(ToriEnv):
@@ -79,6 +79,23 @@ def test_native_controller_is_removed_from_profile_on_close(tmp_path):
     assert "ls remotecontrol_native.lua" in profile.read_text()
     controller._restore_native_profile()
     assert profile.read_text(encoding="utf-8") == "# Existing profile\n"
+    assert not (script_directory / "remotecontrol_native.lua").exists()
+
+
+def test_close_removes_bridge_directory(tmp_path):
+    executable = tmp_path / "toribash_steam"
+    executable.touch()
+    controller = ToribashControl(
+        executable=str(executable), install_native_controller=False
+    )
+    controller.native_bridge = NativeFileBridge(tmp_path)
+    controller.native_bridge.prepare()
+    controller.process = MagicMock()
+
+    controller.close()
+
+    assert not (tmp_path / ".torille").exists()
+    controller.process = None
 
 
 def test_native_controller_uses_game_root_for_bridge_files():
