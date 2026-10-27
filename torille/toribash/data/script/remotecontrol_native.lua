@@ -21,6 +21,8 @@ local function read_file(path)
     if file == nil then return nil end
     local content = file:read("*a")
     file:close()
+    -- Consumed files stay behind empty, which is not a message.
+    if content == "" then return nil end
     local cleared = io.open(path, "w", true)
     if cleared ~= nil then cleared:close() end
     return content
