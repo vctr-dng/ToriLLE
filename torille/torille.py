@@ -21,12 +21,14 @@
 import atexit
 import ctypes
 import ctypes.util
+import json
 import numbers
 import os
 import pprint
 import re
 import select
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -49,6 +51,8 @@ _IN_CREATE = 0x00000100
 _IN_NONBLOCK = 0o4000
 _IN_CLOEXEC = 0o2000000
 
+
+LAUNCH_MODES = ("steam", "direct")
 
 # Longest Python blocks on inotify before checking that the game is alive.
 _INOTIFY_LIVENESS_INTERVAL = 0.05
@@ -209,6 +213,138 @@ class NativeSteamProcess:
             os.kill(self.pid, 9)
         except ProcessLookupError:
             pass
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+class NativeDirectProcess:
+    """Game started by ToriLLE itself (`launch_mode="direct"`), in its own process group."""
+
+    # Seconds the game gets to exit after SIGTERM before it is killed.
+    TERMINATE_TIMEOUT = 3.0
+
+    def __init__(self, popen):
+        self.popen = popen
+        self.pid = popen.pid
+
+    def is_alive(self):
+        return self.popen.poll() is None
+
+    def kill(self):
+        """Terminate the process group we started (SIGTERM, then SIGKILL)."""
+        if self.popen.poll() is not None:
+            return
+        for sig, timeout in (
+            (signal.SIGTERM, self.TERMINATE_TIMEOUT),
+            (signal.SIGKILL, None),
+        ):
+            try:
+                os.killpg(self.pid, sig)
+            except ProcessLookupError:
+                break
+            try:
+                self.popen.wait(timeout)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+
+    def exit_message(self):
+        code = self.popen.poll()
+        if code is None:
+            return ""
+        return (
+            f"The game exited with code {code}. In direct launch mode this "
+            "usually means the Steam client is not running or not logged in "
+            "(SteamAPI_Init failed): start Steam and try again."
+        )
+
+
+def steam_client_running():
+    """True if a Steam client of this user seems to be running."""
+    pid_file = Path.home() / ".steam" / "steam.pid"
+    try:
+        pid = int(pid_file.read_text().strip())
+    except OSError, ValueError:
+        return False
+    if not _pid_alive(pid):
+        return False
+    try:
+        return (Path("/proc") / str(pid) / "comm").read_text().strip() == "steam"
+    except OSError:
+        return False
+
+
+def _cache_directory():
+    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "torille"
+
+
+class SharedOptionSnapshot:
+    """Reference-counted snapshot of options in the user's config files.
+
+    The config files are per user, not per game directory, so several game
+    instances share them. The first holder to start saves the original values
+    and the last one to leave puts them back; the state is kept in a JSON file
+    under a file lock so that separate Python processes cooperate. Holders
+    whose process died are dropped, and the snapshot of a crashed run is
+    restored before a new one is taken.
+    """
+
+    def __init__(self, paths, keys, state_path=None):
+        self.paths = list(paths)
+        self.keys = keys
+        self.state_path = Path(state_path or _cache_directory() / "options.json")
+        self.token = f"{os.getpid()}:{id(self)}"
+
+    def _lock(self):
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        return FileLock(str(self.state_path) + ".lock", timeout=constants.TIMEOUT)
+
+    def _load(self):
+        try:
+            state = json.loads(self.state_path.read_text(encoding="utf-8"))
+            holders = [h for h in state["holders"] if _pid_alive(h["pid"])]
+            snapshot = {Path(k): v for k, v in state["snapshot"].items()}
+        except OSError, ValueError, KeyError, TypeError:
+            return {}, []
+        return snapshot, holders
+
+    def _store(self, snapshot, holders):
+        state = {
+            "snapshot": {str(k): v for k, v in snapshot.items()},
+            "holders": holders,
+        }
+        temporary = self.state_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(state), encoding="utf-8")
+        temporary.replace(self.state_path)
+
+    def acquire(self):
+        with self._lock():
+            snapshot, holders = self._load()
+            if not holders:
+                if snapshot:
+                    # A crashed run left the options changed: undo that first
+                    _restore_options(snapshot)
+                snapshot = _snapshot_options(self.paths, self.keys)
+            holders.append({"pid": os.getpid(), "token": self.token})
+            self._store(snapshot, holders)
+
+    def release(self):
+        with self._lock():
+            snapshot, holders = self._load()
+            holders = [h for h in holders if h["token"] != self.token]
+            if holders:
+                self._store(snapshot, holders)
+                return
+            _restore_options(snapshot)
+            self.state_path.unlink(missing_ok=True)
 
 
 # Options the controller script changes in capture mode. The game stores its
@@ -518,6 +654,9 @@ class ToribashControl:
         capture_size=None,
         capture_crop="center",
         capture_display=None,
+        launch_mode="steam",
+        game_dir=None,
+        display=None,
     ):
         """
         Parameters:
@@ -544,8 +683,41 @@ class ToribashControl:
                           `draw_game=True`; the game camera is fixed.
             capture_crop: "center" or "letterbox", see `torille.capture`.
             capture_display: X display the game window is on (for example
-                             ":0"). Default: the `DISPLAY` environment variable.
+                             ":0"). Default: the `DISPLAY` environment variable
+                             (in direct mode: `display`).
+            launch_mode: "steam" (default): ask the Steam client to start the
+                         game (`steam -applaunch`), one instance per machine.
+                         "direct": start the executable ourselves with
+                         `SteamAppId` set, in its own process group. The Steam
+                         client must be running (it provides Steamworks IPC).
+                         Allows several instances if each has its own copy of
+                         the game directory, see `torille.pool`.
+            game_dir: Directory of the (copy of the) game. Same as
+                      `executable=game_dir/toribash_steam`.
+            display: Direct mode only: X display to start the game on
+                     (default: the `DISPLAY` environment variable).
         """
+        self.process = None
+        if launch_mode not in LAUNCH_MODES:
+            raise ValueError(
+                f"launch_mode must be one of {LAUNCH_MODES}, got {launch_mode!r}"
+            )
+        if display is not None and launch_mode != "direct":
+            raise ValueError(
+                "display only applies to launch_mode='direct' (Steam starts "
+                "the game on its own display)"
+            )
+        if game_dir is not None:
+            game_executable = os.path.join(game_dir, "toribash_steam")
+            if executable is not None and os.path.realpath(
+                executable
+            ) != os.path.realpath(game_executable):
+                raise ValueError("executable and game_dir point at different games")
+            executable = game_executable
+        self.launch_mode = launch_mode
+        self.display = display
+        if capture_display is None and launch_mode == "direct":
+            capture_display = display
         self.capture_size = capture_size
         self.capture_crop = capture_crop
         self.capture_display = capture_display
@@ -698,6 +870,37 @@ class ToribashControl:
             time.sleep(0.1)
         raise TimeoutError("Steam did not start native Toribash")
 
+    def _launch_direct_game(self):
+        """Start the game executable ourselves; Steam only provides the IPC."""
+        if not steam_client_running():
+            raise RuntimeError(
+                "launch_mode='direct' needs the Steam client to be running "
+                "and logged in (the game talks to it through Steamworks and "
+                "otherwise exits with 'SteamAPI_Init failed'). Start Steam "
+                "first."
+            )
+        if self._native_game_pids():
+            raise RuntimeError(
+                f"Native Toribash is already running from {self.executable_path}"
+            )
+        environment = {
+            **os.environ,
+            "SteamAppId": constants.STEAM_APP_ID,
+            "SteamGameId": constants.STEAM_APP_ID,
+        }
+        if self.display is not None:
+            environment["DISPLAY"] = self.display
+        popen = subprocess.Popen(
+            (os.path.abspath(self.executable_path),),
+            cwd=os.path.dirname(os.path.abspath(self.executable_path)),
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return NativeDirectProcess(popen)
+
     def init(self):
         """
         Actual init: Launch the game process, wait for connection and
@@ -716,14 +919,19 @@ class ToribashControl:
         with init_lock:
             if sys.platform == "linux":
                 # Sanity check launching on Linux
-                utils.check_linux_sanity()
+                utils.check_linux_sanity(self.display)
                 # Attempt to make stderr.txt read-only
                 # TODO this will cause headache when trying to remove torille
                 _ = utils.set_file_readonly(self.toribash_stderr_file)
                 if self.capture_size is not None:
-                    self._option_snapshot = _snapshot_options(
-                        _user_config_files(), _CAPTURE_OPTIONS
-                    )
+                    if self.launch_mode == "direct":
+                        self._option_snapshot = SharedOptionSnapshot(
+                            _user_config_files(), _CAPTURE_OPTIONS
+                        )
+                    else:
+                        self._option_snapshot = _snapshot_options(
+                            _user_config_files(), _CAPTURE_OPTIONS
+                        )
                 self.native_bridge = NativeFileBridge(
                     os.path.dirname(self.executable_path),
                     self.poll_interval,
@@ -733,11 +941,16 @@ class ToribashControl:
                 # Leave the game directory as we found it, however we exit
                 atexit.register(_cleanup_at_exit, weakref.ref(self))
                 try:
+                    if isinstance(self._option_snapshot, SharedOptionSnapshot):
+                        self._option_snapshot.acquire()
                     self.native_bridge.prepare()
                     self._install_native_controller()
                     self.settings.validate_settings()
                     self._write_native_settings()
-                    self.process = self._launch_native_game()
+                    if self.launch_mode == "direct":
+                        self.process = self._launch_direct_game()
+                    else:
+                        self.process = self._launch_native_game()
                 except BaseException:
                     self._cleanup()
                     raise
@@ -796,7 +1009,10 @@ class ToribashControl:
         finally:
             self._restore_native_profile()
             if self._option_snapshot is not None:
-                _restore_options(self._option_snapshot)
+                if isinstance(self._option_snapshot, SharedOptionSnapshot):
+                    self._option_snapshot.release()
+                else:
+                    _restore_options(self._option_snapshot)
                 self._option_snapshot = None
             if self.native_bridge is not None:
                 self.native_bridge.cleanup()
@@ -806,9 +1022,15 @@ class ToribashControl:
         Call recv till data ends with ToribashConstant.MESSAGE_END
         """
         if self.native_bridge is not None:
-            return self.native_bridge.receive_state(
-                constants.TIMEOUT, self.process.is_alive
-            )
+            try:
+                return self.native_bridge.receive_state(
+                    constants.TIMEOUT, self.process.is_alive
+                )
+            except RuntimeError as error:
+                hint = getattr(self.process, "exit_message", lambda: "")()
+                if hint:
+                    raise RuntimeError(f"{error}. {hint}") from error
+                raise
         # First wait till there is something to read
         ret = s.recv(constants.BUFFER_SIZE)
         # Now check if we had "\n", and continue reading till we have it

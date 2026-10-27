@@ -56,15 +56,18 @@ def set_file_readonly(filepath):
         return False
 
 
-def check_linux_sanity():
+def check_linux_sanity(display=None):
     """
     A helper function that checks Linux environment
     for requirements, and warns/throws accordingly
+
+    Parameters:
+        display: X display to check instead of the `DISPLAY` variable.
     """
 
     # Check that we have a valid display to render into.
     # We rather avoid running over SSH
-    display = os.getenv("DISPLAY")
+    display = display or os.getenv("DISPLAY")
     if display is None:
         raise RuntimeError(
             "No display detected. "

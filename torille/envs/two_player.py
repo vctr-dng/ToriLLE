@@ -181,7 +181,12 @@ class TwoPlayerToriEnv:
             captures 256 px frames for `render()` only. Capture needs
             `draw_game=True`, see `torille.capture` and docs/envs.md.
         capture_crop: "center" (square crop of the window) or "letterbox".
-        capture_display: X display of the game window (default `$DISPLAY`).
+        capture_display: X display of the game window (default `$DISPLAY`,
+            or `display` in direct mode).
+        launch_mode: `"steam"` (default, `steam -applaunch`) or `"direct"`
+            (start the executable ourselves, needs the Steam client running).
+        game_dir: Directory of a (copy of the) game, see `torille.pool`.
+        display: Direct mode only: X display to start the game on.
         **settings: Toribash settings, e.g. `matchframes` (default 1000) and
             `turnframes` (default 5).
 
@@ -214,6 +219,9 @@ class TwoPlayerToriEnv:
         capture_size=None,
         capture_crop="center",
         capture_display=None,
+        launch_mode="steam",
+        game_dir=None,
+        display=None,
         **settings,
     ):
         if callable(reward):
@@ -245,6 +253,9 @@ class TwoPlayerToriEnv:
             capture_size=capture_size,
             capture_crop=capture_crop,
             capture_display=capture_display,
+            launch_mode=launch_mode,
+            game_dir=game_dir,
+            display=display,
         )
         self._frame = None
         self._frame_match_frame = None
