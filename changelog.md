@@ -15,12 +15,12 @@
 ### 18.2.2019 v1.0.0
 
 * Added possibility to "remote control" in multiplayer games
-  * Done via "manual_torille.py", where human player must manually 
-    launch the script in Toribash, which then connects to the remote 
+  * Done via "manual_torille.py", where human player must manually
+    launch the script in Toribash, which then connects to the remote
     controller
 * Refactoring code to avoid one huge file
 * Added match length, current frame and frames next turn to state
-* Added possibility to change game mod 
+* Added possibility to change game mod
 * Fixed off-by-one error with turnframes which prevented from using turnframes=1
 * Updated pypi-package to use Toribash 5.4
 
@@ -52,12 +52,12 @@
 * Added limit for turnframes [2,matchframes]. Later turnframes=1 might be made possible
 * Fixed "static" frames at the start of learning: First few states were always the same
 * Added sanity check for available displays on Linux (for $DISPLAY="")
-* FPS on Windows 10 improved by ~10% 
+* FPS on Windows 10 improved by ~10%
 
 ### 27.7.2018 v0.9.1
 
-* Removed resolution changes. This caused crashing on some Linux systems with Wine and windows
-* Fixed Wine version checking
+* Removed resolution changes. This caused crashing on some Linux and Windows systems
+* Fixed compatibility version checking
 
 ### 26.7.2018 v0.9.0
 
