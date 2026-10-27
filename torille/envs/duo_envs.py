@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-#
 #  duo_envs.py
 #  ToriLLE Gym environments with duo tasks (e.g. combat )
 #
@@ -23,12 +21,13 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 
-import gym
-from gym import spaces
-from .gym_env import ToriEnv
-from .. import torille
-import numpy as np
 import math
+
+import numpy as np
+from gymnasium import spaces
+
+from .. import torille
+from .gym_env import ToriEnv
 
 
 def reward_injury_player1_pov(old_state, new_state):
@@ -63,7 +62,7 @@ def reward_win_player1_pov(old_state, new_state):
             # Game was tie
             return 0
         else:
-            raise ValueError("state.winner was %d" % new_state.winner)
+            raise ValueError(f"state.winner was {new_state.winner}")
     # Game has not ended yet
     return 0
 
@@ -95,22 +94,25 @@ def reward_cuddles(old_state, new_state):
 
 
 class DuoToriEnv(ToriEnv):
-    """ An extension to ToriEnv designed for controlling both players"""
+    """An extension to ToriEnv designed for controlling both players"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.reward_func = kwargs["reward_func"]
 
         # Create action/observation space again, but this time ravel'd
-        self.action_space = spaces.MultiDiscrete((
-            [torille.constants.NUM_JOINT_STATES] *
-            torille.constants.NUM_CONTROLLABLES * 2)
+        self.action_space = spaces.MultiDiscrete(
+            [torille.constants.NUM_JOINT_STATES]
+            * torille.constants.NUM_CONTROLLABLES
+            * 2
         )
         # For both players, relative position of both players
         # (Two perspectives, two players -> 4 * number of limbs)
         self.observation_space = spaces.Box(
-            low=-30, high=30, dtype=np.float32,
-            shape=(torille.constants.NUM_LIMBS * 3 * 2 * 2,)
+            low=-30,
+            high=30,
+            dtype=np.float32,
+            shape=(torille.constants.NUM_LIMBS * 3 * 2 * 2,),
         )
 
     def _preprocess_observation(self, state):
@@ -131,8 +133,10 @@ class DuoToriEnv(ToriEnv):
         for i in range(torille.constants.NUM_CONTROLLABLES * 2):
             action[i] += 1
         # Split into two lists
-        action = [action[:torille.constants.NUM_CONTROLLABLES],
-                  action[torille.constants.NUM_CONTROLLABLES:]]
+        action = [
+            action[: torille.constants.NUM_CONTROLLABLES],
+            action[torille.constants.NUM_CONTROLLABLES :],
+        ]
         return action
 
     def _reward_function(self, old_state, new_state):

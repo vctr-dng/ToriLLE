@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-#
 #  gym_env.py
 #  ToriLLE available as OpenAI Gym Environment
 #
@@ -23,11 +21,13 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 
-import gym
-from gym import spaces
-from .. import torille
-import numpy as np
 from copy import deepcopy
+
+import gymnasium as gym
+import numpy as np
+from gymnasium import spaces
+
+from .. import torille
 
 
 class ToriEnv(gym.Env):
@@ -39,9 +39,11 @@ class ToriEnv(gym.Env):
         _reward_function
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, executable=None, **kwargs):
         self.settings = torille.ToribashSettings(**kwargs)
-        self.game = torille.ToribashControl(settings=self.settings)
+        self.game = torille.ToribashControl(
+            settings=self.settings, executable=executable
+        )
 
         # Previous state (ToribashState)
         # Used for reward function
@@ -52,14 +54,16 @@ class ToriEnv(gym.Env):
         # This is to make sure first call to controller will be get_state()
         self.just_created = True
 
-        self.action_space = spaces.MultiDiscrete((
-            [torille.constants.NUM_JOINT_STATES] *
-            torille.constants.NUM_CONTROLLABLES) * 2
+        self.action_space = spaces.MultiDiscrete(
+            ([torille.constants.NUM_JOINT_STATES] * torille.constants.NUM_CONTROLLABLES)
+            * 2
         )
         # For both players, position of all joints
         self.observation_space = spaces.Box(
-            low=-30, high=30, dtype=np.float32,
-            shape=(2, torille.constants.NUM_LIMBS * 3)
+            low=-30,
+            high=30,
+            dtype=np.float32,
+            shape=(2, torille.constants.NUM_LIMBS * 3),
         )
 
     def _preprocess_observation(self, state):
@@ -99,10 +103,10 @@ class ToriEnv(gym.Env):
             # We cannot send action as a first call to controller
             # We should instead call `reset`.
             # Inform and fail
-            raise Exception(
-                "`step` function was called " +
-                "before calling `reset`. Call `reset` after creating " +
-                "environment to get the first observation."
+            raise RuntimeError(
+                "`step` function was called "
+                + "before calling `reset`. Call `reset` after creating "
+                + "environment to get the first observation."
             )
 
         # Take copy of actions so we won't accidentally modify
@@ -128,7 +132,7 @@ class ToriEnv(gym.Env):
             self.game.init()
             # The env was just created and we need to start
             # by returning an observation.
-            state, terminal = self.game.get_state()
+            state, _terminal = self.game.get_state()
             obs = self._preprocess_observation(state)
             # Remember to update the state here as well
             self.old_state = state
@@ -149,7 +153,7 @@ class ToriEnv(gym.Env):
             visibility: True = game will be drawn.
         """
         if not self.just_created:
-            raise Exception("Can't change rendering after first `reset()`")
+            raise RuntimeError("Can't change rendering after first `reset()`")
         else:
             self.game.draw_game = visibility
 

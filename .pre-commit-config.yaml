@@ -27,5 +27,6 @@ repos:
     hooks:
       - id: pyrefly-check
         name: Pyrefly (type checking)
+        args: [torille, tests]
         pass_filenames: false
         language: system

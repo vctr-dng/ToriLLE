@@ -1,16 +1,11 @@
-from gym.envs.registration import register
-from .solo_envs import (
-    SoloToriEnv, reward_run_away,
-    reward_self_destruct, reward_stay_safe
-)
-from .uke_envs import (
-    UkeToriEnv, reward_destroy_uke_with_penalty,
-    reward_destroy_uke
-)
-from .duo_envs import (
-    DuoToriEnv, reward_injury_player1_pov,
-    reward_win_player1_pov, reward_cuddles
-)
+from gymnasium.envs.registration import register
+
+from .duo_envs import DuoToriEnv as DuoToriEnv
+from .duo_envs import reward_cuddles, reward_injury_player1_pov, reward_win_player1_pov
+from .solo_envs import SoloToriEnv as SoloToriEnv
+from .solo_envs import reward_run_away, reward_self_destruct, reward_stay_safe
+from .uke_envs import UkeToriEnv as UkeToriEnv
+from .uke_envs import reward_destroy_uke, reward_destroy_uke_with_penalty
 
 # ---------------------------------------------------------------
 # Solo envs -----------------------------------------------------
@@ -19,28 +14,28 @@ from .duo_envs import (
 # SelfDestruct-v0 env: Try to inflict as much damage to yourself
 #                      as possible (plus reward on damage)
 register(
-    id='Toribash-SelfDestruct-v0',
-    entry_point='torille.envs:SoloToriEnv',
+    id="Toribash-SelfDestruct-v0",
+    entry_point="torille.envs:SoloToriEnv",
     kwargs={
-        'reward_func': reward_self_destruct,
-        'matchframes': 1000,
-        'turnframes': 5,
+        "reward_func": reward_self_destruct,
+        "matchframes": 1000,
+        "turnframes": 5,
         # Avoid contact with the other player (who just idles)
-        'engagement_distance': 1500
+        "engagement_distance": 1500,
     },
 )
 
 # StaySafe-v0 env: Anti-self-destruct, i.e. try to minimize damage
 #                  to yourself (minus reward on damage)
 register(
-    id='Toribash-StaySafe-v0',
-    entry_point='torille.envs:SoloToriEnv',
+    id="Toribash-StaySafe-v0",
+    entry_point="torille.envs:SoloToriEnv",
     kwargs={
-        'reward_func': reward_stay_safe,
-        'matchframes': 1000,
-        'turnframes': 5,
+        "reward_func": reward_stay_safe,
+        "matchframes": 1000,
+        "turnframes": 5,
         # Avoid contact with the other player (who just idles)
-        'engagement_distance': 1500
+        "engagement_distance": 1500,
     },
 )
 
@@ -48,14 +43,14 @@ register(
 #               (plus reward on moving further away center).
 #               Center is located between two players.
 register(
-    id='Toribash-RunAway-v0',
-    entry_point='torille.envs:SoloToriEnv',
+    id="Toribash-RunAway-v0",
+    entry_point="torille.envs:SoloToriEnv",
     kwargs={
-        'reward_func': reward_run_away,
-        'matchframes': 1000,
-        'turnframes': 5,
+        "reward_func": reward_run_away,
+        "matchframes": 1000,
+        "turnframes": 5,
         # Avoid contact with the other player (who just idles)
-        'engagement_distance': 1500
+        "engagement_distance": 1500,
     },
 )
 
@@ -66,13 +61,13 @@ register(
 # DestroyUke-v0: Attack an immobile Uke, try to inflict as much
 #                damage as possible to it. Damage = Reward.
 register(
-    id='Toribash-DestroyUke-v0',
-    entry_point='torille.envs:UkeToriEnv',
+    id="Toribash-DestroyUke-v0",
+    entry_point="torille.envs:UkeToriEnv",
     kwargs={
-        'reward_func': reward_destroy_uke,
-        'matchframes': 1000,
-        'turnframes': 5,
-        'random_uke': False,
+        "reward_func": reward_destroy_uke,
+        "matchframes": 1000,
+        "turnframes": 5,
+        "random_uke": False,
     },
 )
 
@@ -80,13 +75,13 @@ register(
 #                damage as possible to it. Damage = Reward.
 #                Reward penalty if player takes damage.
 register(
-    id='Toribash-DestroyUke-v1',
-    entry_point='torille.envs:UkeToriEnv',
+    id="Toribash-DestroyUke-v1",
+    entry_point="torille.envs:UkeToriEnv",
     kwargs={
-        'reward_func': reward_destroy_uke_with_penalty,
-        'matchframes': 1000,
-        'turnframes': 5,
-        'random_uke': False,
+        "reward_func": reward_destroy_uke_with_penalty,
+        "matchframes": 1000,
+        "turnframes": 5,
+        "random_uke": False,
     },
 )
 
@@ -94,13 +89,13 @@ register(
 #                damage as possible to it. Damage = Reward.
 #                Reward penalty if player takes damage.
 register(
-    id='Toribash-DestroyUke-v2',
-    entry_point='torille.envs:UkeToriEnv',
+    id="Toribash-DestroyUke-v2",
+    entry_point="torille.envs:UkeToriEnv",
     kwargs={
-        'reward_func': reward_destroy_uke_with_penalty,
-        'matchframes': 1000,
-        'turnframes': 5,
-        'random_uke': True,
+        "reward_func": reward_destroy_uke_with_penalty,
+        "matchframes": 1000,
+        "turnframes": 5,
+        "random_uke": True,
     },
 )
 
@@ -113,12 +108,12 @@ register(
 #                      + reward for player 2 receiving damage
 #                      - reward for player 1 receiving damage
 register(
-    id='Toribash-DuoInjuryCombat-v0',
-    entry_point='torille.envs:DuoToriEnv',
+    id="Toribash-DuoInjuryCombat-v0",
+    entry_point="torille.envs:DuoToriEnv",
     kwargs={
-        'reward_func': reward_injury_player1_pov,
-        'matchframes': 1000,
-        'turnframes': 5,
+        "reward_func": reward_injury_player1_pov,
+        "matchframes": 1000,
+        "turnframes": 5,
     },
 )
 
@@ -128,12 +123,12 @@ register(
 #                    -1 reward if player 2 won the game
 #                     0 reward if game was tie
 register(
-    id='Toribash-DuoWinCombat-v0',
-    entry_point='torille.envs:DuoToriEnv',
+    id="Toribash-DuoWinCombat-v0",
+    entry_point="torille.envs:DuoToriEnv",
     kwargs={
-        'reward_func': reward_win_player1_pov,
-        'matchframes': 1000,
-        'turnframes': 5,
+        "reward_func": reward_win_player1_pov,
+        "matchframes": 1000,
+        "turnframes": 5,
     },
 )
 
@@ -142,13 +137,13 @@ register(
 #             receive penalty if either of players is
 #             damaged.
 register(
-    id='Toribash-Cuddles-v0',
-    entry_point='torille.envs:DuoToriEnv',
+    id="Toribash-Cuddles-v0",
+    entry_point="torille.envs:DuoToriEnv",
     kwargs={
-        'reward_func': reward_cuddles,
-        'matchframes': 1000,
+        "reward_func": reward_cuddles,
+        "matchframes": 1000,
         # Lower frame-skip for smoother action.
         # Otherwise could get bit too rough
-        'turnframes': 2,
+        "turnframes": 2,
     },
 )

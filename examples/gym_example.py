@@ -1,11 +1,8 @@
-#!/usr/bin/env python3
-#
 #  gym_example.py
 #  A minimalistic example running ToriLLE OpenAI Gym Environment
 #
 #  Author: Anssi "Miffyli" Kanervisto, 2018
-import gym
-import torille.envs
+import gymnasium as gym
 
 # How many games will be played
 NUM_EPISODES = 5
@@ -60,7 +57,7 @@ while number_of_episodes < NUM_EPISODES:
         print("\n--- New episode ---\n")
 
     # Print out some info
-    print("\n--- Turn %d, Episode %d ---" % (turn_number, number_of_episodes))
+    print(f"\n--- Turn {turn_number}, Episode {number_of_episodes} ---")
     print("State: " + str(state))
     print("Action: " + str(actions))
     print("Reward: " + str(reward))

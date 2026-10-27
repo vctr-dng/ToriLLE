@@ -5,15 +5,14 @@
 
 Main class which controls Toribash process and handles communication.
 
-#### `__init__(settings=None, draw_game=False, executable=constants.TORIBASH_EXE, port=constants.PORT)`
-Creates a new Toribash controller, but does not launch Toribash instance. 
+#### `__init__(settings=None, draw_game=False, executable=None, port=constants.PORT)`
+Creates a new Toribash controller, but does not launch Toribash instance.
 `ToribashControl` instance can be serialized (pickled) at this point.
 
 Parameters:
-* settings: `ToribashSettings` used to define initial settings of the game. 
+* settings: `ToribashSettings` used to define initial settings of the game.
 * draw_game: Boolean specifying if game should be human-"enjoyable", i.e. run at convenient frame-rate and display characters
-* executable: String which specifies path to the game executable (toribash.exe). By default this assumes Toribash binary is in 
-  `toribash` directory next to `torille.py`, which is the case is installed via pip.
+* executable: Optional path to a native Toribash executable. On Linux the default is Steam's `toribash_steam` under `$XDG_DATA_HOME/Steam/steamapps/common/Toribash/` (or `~/.local/share` when `XDG_DATA_HOME` is unset). On Windows the default is the packaged `toribash.exe`.
 * port: Integer which specifies port where Toribash Lua attempts to connect to.
 
 #### `init()`
@@ -34,7 +33,7 @@ Throws exceptions if game has not been initialized, connection is broken or conn
 
 Returns:
 * state: `ToribashState` of the current state of the game
-* terminal: Boolean indicating if state was terminal 
+* terminal: Boolean indicating if state was terminal
 
 #### `make_actions(actions)`
 Sends given actions to Toribash and proceeds the game by set amount of frames (given in settings).
@@ -45,24 +44,24 @@ Throws exceptions if game has not been initialized, connection is broken/times o
 
 Parameters:
 * actions: List of two lists with `constants.NUM_CONTROLLABLES` elements.
-  Each element is integer from range {1,2,3,4}. 
-  These represent joint states for both Toribash characters. 
+  Each element is integer from range {1,2,3,4}.
+  These represent joint states for both Toribash characters.
   **Note: ** Toribash character hands only take {0,1}, but for simplicity controller maps
-             {1,2} => 0 and {3,4} => 4. 
+             {1,2} => 0 and {3,4} => 4.
 
 #### `reset(settings=None)`
-Resets the game to initial state, sets new settings (if given) and returns initial state. 
+Resets the game to initial state, sets new settings (if given) and returns initial state.
 
 **Note:** Must be followed by `get_state()` which returned `terminal=True`.
 
 Parameters:
-* settings: `ToribashSettings` used to define initial settings of the game. 
+* settings: `ToribashSettings` used to define initial settings of the game.
 
 Returns
 * state: `ToribashState` of the initial state of the game
 
 #### `validate_actions(actions)`
-Used to validate actions internally to avoid Toribash crashing without errors. 
+Used to validate actions internally to avoid Toribash crashing without errors.
 
 Throws an exception if action is invalid.
 
@@ -97,7 +96,7 @@ Returns:
 * action_dim: Number of joints per player
 
 #### `get_num_joint_states()`
-Returns number of states a joint can be in 
+Returns number of states a joint can be in
 
 Returns:
 * action_categories: Number of states joint can be in
@@ -107,18 +106,18 @@ Returns:
 ## ToribashState
 
 Class used to refine and represent state
-from Toribash. Returned by `ToribashControl.get_state()` and `ToribashControl.reset()`. 
+from Toribash. Returned by `ToribashControl.get_state()` and `ToribashControl.reset()`.
 
 #### `limb_positions`
-A Numpy array of shape (2, `constants.NUM_LIMBS`, 3) containing positions of 
+A Numpy array of shape (2, `constants.NUM_LIMBS`, 3) containing positions of
 body parts of both players.
 
 #### `limb_velocities`
-A Numpy array of shape (2, `constants.NUM_LIMBS`, 3) containing velocities of 
+A Numpy array of shape (2, `constants.NUM_LIMBS`, 3) containing velocities of
 body parts of both players.
 
 #### `groin_rotations`
-A Numpy array of shape (2, 4, 4) containing the rotation matrix of the groin (hip) 
+A Numpy array of shape (2, 4, 4) containing the rotation matrix of the groin (hip)
 of both players.
 
 #### `joint_states`
@@ -143,12 +142,12 @@ Length of the game (in frames), number of frames played already and
 how many frames next turn will last.
 
 #### `get_normalized_locations()`
-Returns a (2, 2, NUM_LIMBS, 3) array, representing location of both players' 
+Returns a (2, 2, NUM_LIMBS, 3) array, representing location of both players'
 body parts, with respect to both players (first dimension).
 
 The locations are centered around respective players' groin (close to hip), and
 rotated according to groin's rotation. E.g. at the start of the game, both
-players will have exactly the same coordinates for their and their opponent's 
+players will have exactly the same coordinates for their and their opponent's
 body parts.
 
 ---
@@ -172,7 +171,7 @@ Name | Description | Type | Default
 ---- | ----------- | ---- | -------
 custom_settings | If following custom settings should be applied | {0,1} | 1 |
 matchframes | Length of an episode in frames | Integer | 500|
-turnframes | Number of frames per turn (aka frame-skip) | Integer (interval [1,matchframes]) | 10| 
+turnframes | Number of frames per turn (aka frame-skip) | Integer (interval [1,matchframes]) | 10|
 engagement_distance | Starting distance between characters | Integer | 100|
 engagement_height | Starting height of characters | Integer  | 0|
 engagement_rotation | Starting rotation (degrees, anti-clockwise) of characters | Integer | 0|
@@ -184,7 +183,7 @@ dismemberment_enable | Is dismemberment enabled | {0,1} | 1|
 dismemberment_threshold | Force required to dismemberment to happen | Integer | 100|
 fractures_enable | Enable fractures (disables joints) | {0,1} | 0|
 fractures_threshold | Force required for fractures | Integer | 0|
-disqualification_enabled | Enable disqualification (see link below for more info) | {0,1} | 0| 
+disqualification_enabled | Enable disqualification (see link below for more info) | {0,1} | 0|
 disqualification_flags | Settings for disqualification (see link below for more info) | Integer | 0 |
 disqualification_timeout | How long one can touch ground before disqualified | Integer | 0|
 dojo_type | How battle arena works (see link below for more info) | Integer | 0|
