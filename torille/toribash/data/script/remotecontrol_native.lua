@@ -24,6 +24,9 @@ local game_mod = "classic"
 -- Milliseconds to keep checking for an action inside the freeze hook before
 -- falling back to the per-frame poll (saves up to one frame of latency).
 local spin_ms = 0
+-- Capture mode: fix the camera and hide moving interface elements, so frames
+-- are comparable and do not change while the game waits.
+local fixed_camera = false
 
 local function read_file(path)
     local file = io.open(path, "r", true)
@@ -102,12 +105,45 @@ local function apply_render_options(draw_game)
     end
 end
 
+-- Camera for RGB capture: a fixed side view of the fight, so that frames are
+-- comparable across turns and episodes. The fighters start on a line along the
+-- y axis around x = 1, so the camera looks along -x at their midpoint.
+-- Findings (see docs/envs.md): in free camera mode the view direction comes
+-- from the camera angle, not from the position/look-at pair, so the angle must
+-- be set to match the position (0 degrees = camera on the +x side).
+local CAMERA_ANGLE = 0
+local CAMERA_POS = { x = 5.5, y = -0.1, z = 1.8 }
+local CAMERA_LOOKAT = { x = 1.0, y = -0.1, z = 1.0 }
+
+local function place_camera()
+    set_camera_mode(3)
+    set_camera_angle(CAMERA_ANGLE)
+    set_camera_lookat(CAMERA_LOOKAT.x, CAMERA_LOOKAT.y, CAMERA_LOOKAT.z)
+    set_camera_pos(CAMERA_POS.x, CAMERA_POS.y, CAMERA_POS.z)
+    -- The ghost (a looping preview of the planned moves) animates while the
+    -- game waits for an action, which would change the picture of a fixed state.
+    if get_ghost() ~= 0 then set_ghost(0) end
+end
+
+-- Interface that would change between frames of the same state: the HUD
+-- counters and the joint flash (a glow that fades in over about 0.7 s after
+-- every turn). ToribashControl restores `jointflash` in the user's config.
+local function fix_camera()
+    set_option("hud", 0)
+    set_option("jointflash", 0)
+    disable_camera_movement()
+    disable_mouse_camera_movement()
+end
+
 local function apply_settings()
     local content = read_file(SETTINGS)
     if content == nil then return false end
-    local draw_line, settings_line, spin_line = string.match(content, "([^\n]*)\n([^\n]*)\n?([^\n]*)")
+    local draw_line, settings_line, spin_line, camera_line =
+        string.match(content, "([^\n]*)\n([^\n]*)\n?([^\n]*)\n?([^\n]*)")
     if settings_line == nil then return false end
     spin_ms = tonumber(spin_line) or 0
+    fixed_camera = camera_line == "1"
+    if fixed_camera then fix_camera() end
     local draw_game = draw_line == "1"
     if draw_game ~= drawing then
         drawing = draw_game
@@ -177,6 +213,7 @@ local function request_action(spin)
 end
 
 local function poll_bridge()
+    if fixed_camera then place_camera() end
     if waiting_for_action then
         take_action()
     elseif waiting_for_reset and read_file(RESET) ~= nil then
@@ -196,6 +233,7 @@ local function finish_game()
 end
 
 local function start_game()
+    if fixed_camera then place_camera() end
     if first_game then
         first_game = false
         if apply_settings() then
@@ -213,4 +251,5 @@ close_menu()
 add_hook("new_game", "torille_native", start_game)
 add_hook("enter_freeze", "torille_native", function() request_action(true) end)
 add_hook("pre_draw", "torille_native", poll_bridge)
+
 run_cmd("loadmod classic")

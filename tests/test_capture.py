@@ -32,20 +32,17 @@ def test_letterbox_keeps_the_aspect_ratio():
     assert capture.letterbox_geometry(300, 300, 256) == (256, 256, 0, 0)
 
 
-@pytest.mark.parametrize(("source", "target"), [(1440, 256), (10, 3), (7, 7), (5, 8)])
-def test_area_weights_are_a_partition_of_unity(source, target):
-    weights = capture._area_weights(source, target)
-    assert weights.shape == (target, source)
-    np.testing.assert_allclose(weights.sum(axis=1), 1.0, rtol=1e-5)
-    assert (weights >= 0).all()
-
-
 def test_resize_keeps_constant_images_and_integer_means():
     flat = np.full((90, 160, 3), 77, dtype=np.uint8)
     assert (capture.resize_area(flat, 30, 40) == 77).all()
     # Exact 2x2 box average
     image = np.array([[[0], [10]], [[20], [30]]], dtype=np.uint8)
     assert capture.resize_area(image, 1, 1)[0, 0, 0] == 15
+    # Non-uniform content: bins of a 6x1 ramp
+    ramp = np.arange(6, dtype=np.uint8).reshape(1, 6, 1) * 10
+    assert capture.resize_area(ramp, 1, 3)[0, :, 0].tolist() == [5, 25, 45]
+    # Growing repeats pixels
+    assert capture.resize_area(ramp, 2, 12).shape == (2, 12, 1)
     # Identity
     rng = np.random.default_rng(0)
     noise = rng.integers(0, 256, (12, 9, 3), dtype=np.uint8)
@@ -183,3 +180,20 @@ def test_two_player_observations_carry_the_same_frame():
     )
     assert observations["player_0"]["rgb"] is not observations["player_1"]["rgb"]
     assert env.render().shape == (8, 8, 3)
+
+
+def test_changed_game_options_are_restored_in_the_config_files(tmp_path):
+    from torille.torille import _restore_options, _snapshot_options
+
+    custom = tmp_path / "custom.cfg"
+    temp = tmp_path / "temp.cfg"
+    custom.write_text('trails "1"\njointflash "1"\nwidth "1280"\n')
+    snapshot = _snapshot_options(
+        [custom, temp, tmp_path / "missing.cfg"], ["jointflash"]
+    )
+    assert snapshot == {custom: {"jointflash": "1"}}
+
+    # The game ran with the option off and a user change elsewhere in the file
+    custom.write_text('trails "0"\njointflash "0"\nwidth "1280"\n')
+    _restore_options(snapshot)
+    assert custom.read_text() == 'trails "0"\njointflash "1"\nwidth "1280"\n'

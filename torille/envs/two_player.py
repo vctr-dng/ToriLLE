@@ -181,6 +181,7 @@ class TwoPlayerToriEnv:
             captures 256 px frames for `render()` only. Capture needs
             `draw_game=True`, see `torille.capture` and docs/envs.md.
         capture_crop: "center" (square crop of the window) or "letterbox".
+        capture_display: X display of the game window (default `$DISPLAY`).
         **settings: Toribash settings, e.g. `matchframes` (default 1000) and
             `turnframes` (default 5).
 
@@ -212,6 +213,7 @@ class TwoPlayerToriEnv:
         render_mode=None,
         capture_size=None,
         capture_crop="center",
+        capture_display=None,
         **settings,
     ):
         if callable(reward):
@@ -242,6 +244,7 @@ class TwoPlayerToriEnv:
             install_native_controller=install_native_controller,
             capture_size=capture_size,
             capture_crop=capture_crop,
+            capture_display=capture_display,
         )
         self._frame = None
         self._frame_match_frame = None

@@ -24,6 +24,7 @@ import ctypes.util
 import numbers
 import os
 import pprint
+import re
 import select
 import shutil
 import socket
@@ -208,6 +209,52 @@ class NativeSteamProcess:
             os.kill(self.pid, 9)
         except ProcessLookupError:
             pass
+
+
+# Options the controller script changes in capture mode. The game stores its
+# options in the user's config files, so the original values are put back.
+_CAPTURE_OPTIONS = ("jointflash",)
+
+
+def _user_config_files():
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return [data_home / "Toribash" / name for name in ("custom.cfg", "temp.cfg")]
+
+
+def _snapshot_options(paths, keys):
+    """`{path: {key: value}}` of the `key "value"` lines present in the files."""
+    snapshot = {}
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        values = {}
+        for key in keys:
+            match = re.search(rf'^{key} "([^"\n]*)"$', text, re.MULTILINE)
+            if match:
+                values[key] = match.group(1)
+        snapshot[path] = values
+    return snapshot
+
+
+def _restore_options(snapshot):
+    """Write the snapshot values back into the config files (best effort)."""
+    for path, values in snapshot.items():
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            restored = text
+            for key, value in values.items():
+                restored = re.sub(
+                    rf'^({key} ")[^"\n]*(")$',
+                    lambda match, value=value: match.group(1) + value + match.group(2),
+                    restored,
+                    flags=re.MULTILINE,
+                )
+            if restored != text:
+                path.write_text(restored, encoding="utf-8")
+        except OSError:
+            continue
 
 
 def _cleanup_at_exit(controller_ref):
@@ -470,6 +517,7 @@ class ToribashControl:
         spin_ms=5.0,
         capture_size=None,
         capture_crop="center",
+        capture_display=None,
     ):
         """
         Parameters:
@@ -495,10 +543,20 @@ class ToribashControl:
                           frames of this size (see `torille.capture`). Needs
                           `draw_game=True`; the game camera is fixed.
             capture_crop: "center" or "letterbox", see `torille.capture`.
+            capture_display: X display the game window is on (for example
+                             ":0"). Default: the `DISPLAY` environment variable.
         """
         self.capture_size = capture_size
         self.capture_crop = capture_crop
+        self.capture_display = capture_display
         self._frame_capture = None
+        self._frame_ready_at = 0.0
+        # Seconds after a state arrives before its frame is on screen for sure.
+        # Measured: within about 15 ms after a turn and about 25 ms after a
+        # reset the picture is final. These values leave some margin.
+        self.capture_settle = 0.03
+        self.capture_reset_settle = 0.1
+        self._option_snapshot = None
         self.process = None
         self.connection = None
         self.native_bridge = None
@@ -662,6 +720,10 @@ class ToribashControl:
                 # Attempt to make stderr.txt read-only
                 # TODO this will cause headache when trying to remove torille
                 _ = utils.set_file_readonly(self.toribash_stderr_file)
+                if self.capture_size is not None:
+                    self._option_snapshot = _snapshot_options(
+                        _user_config_files(), _CAPTURE_OPTIONS
+                    )
                 self.native_bridge = NativeFileBridge(
                     os.path.dirname(self.executable_path),
                     self.poll_interval,
@@ -733,6 +795,9 @@ class ToribashControl:
             pass
         finally:
             self._restore_native_profile()
+            if self._option_snapshot is not None:
+                _restore_options(self._option_snapshot)
+                self._option_snapshot = None
             if self.native_bridge is not None:
                 self.native_bridge.cleanup()
 
@@ -821,6 +886,7 @@ class ToribashControl:
         self.requires_get_state = False
 
         s, terminal, winner = self._recv_state()
+        self._frame_ready_at = time.monotonic() + self.capture_settle
         s = ToribashState(s, winner)
         return s, terminal
 
@@ -836,8 +902,11 @@ class ToribashControl:
             raise RuntimeError("Frame capture is off: set `capture_size`")
         if self._frame_capture is None:
             self._frame_capture = capture.FrameCapture(
-                self.capture_size, self.capture_crop
+                self.capture_size, self.capture_crop, display=self.capture_display
             ).start(self.process.is_alive)
+        pause = self._frame_ready_at - time.monotonic()
+        if pause > 0:
+            time.sleep(pause)
         return self._frame_capture.grab()
 
     def reset(self):
@@ -859,6 +928,7 @@ class ToribashControl:
         self.requires_get_state = True
 
         s, _terminal = self.get_state()
+        self._frame_ready_at += self.capture_reset_settle - self.capture_settle
         self.requires_reset = False
 
         return s

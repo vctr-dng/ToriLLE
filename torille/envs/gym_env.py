@@ -58,6 +58,7 @@ class ToriEnv(gym.Env):
         render_mode=None,
         capture_size=None,
         capture_crop="center",
+        capture_display=None,
         **kwargs,
     ):
         if observation_type not in OBSERVATION_TYPES:
@@ -91,6 +92,7 @@ class ToriEnv(gym.Env):
             install_native_controller=install_native_controller,
             capture_size=capture_size,
             capture_crop=capture_crop,
+            capture_display=capture_display,
         )
         self._frame = None
         self._frame_match_frame = None
