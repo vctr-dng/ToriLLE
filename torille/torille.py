@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-#
 #  torille.py
 #  Provides Python API to Toribash (i.e. can control the characters)
 #
@@ -20,19 +18,20 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 #
+import os
+import pprint
 import socket
-import numpy as np
 import subprocess
 import sys
-import os
-from collections import OrderedDict
-import pprint
-from filelock import FileLock
 import warnings
+from collections import OrderedDict
 from copy import deepcopy
+from typing import ClassVar
 
-from . import constants
-from . import utils
+import numpy as np
+from filelock import FileLock
+
+from . import constants, utils
 
 
 class ToribashState:
@@ -84,15 +83,19 @@ class ToribashState:
         # Indexes from  state_structure.md
         # Limbs
         self.limb_positions[0] = np.array(state_list[:63]).reshape(
-            (constants.NUM_LIMBS, 3))
+            (constants.NUM_LIMBS, 3)
+        )
         self.limb_velocities[0] = np.array(state_list[63:126]).reshape(
-            (constants.NUM_LIMBS, 3))
+            (constants.NUM_LIMBS, 3)
+        )
         self.groin_rotations[0] = np.array(state_list[126:142]).reshape(4, 4)
 
         self.limb_positions[1] = np.array(state_list[165:228]).reshape(
-            (constants.NUM_LIMBS, 3))
+            (constants.NUM_LIMBS, 3)
+        )
         self.limb_velocities[1] = np.array(state_list[228:291]).reshape(
-            (constants.NUM_LIMBS, 3))
+            (constants.NUM_LIMBS, 3)
+        )
         self.groin_rotations[1] = np.array(state_list[291:307]).reshape(4, 4)
 
         # Joint states (inc. hand grips)
@@ -135,42 +138,46 @@ class ToribashState:
         # Apply rotation of the groin, otherwise
         # player2 will have "mirrored" coordinates
         rotations = self.groin_rotations[:, :3, :3]
-        player1_obs = np.dot(player1_obs.reshape(
-            (-1, 3)), rotations[0]).reshape((2, constants.NUM_LIMBS, 3))
-        player2_obs = np.dot(player2_obs.reshape(
-            (-1, 3)), rotations[1]).reshape((2, constants.NUM_LIMBS, 3))
+        player1_obs = np.dot(player1_obs.reshape((-1, 3)), rotations[0]).reshape(
+            (2, constants.NUM_LIMBS, 3)
+        )
+        player2_obs = np.dot(player2_obs.reshape((-1, 3)), rotations[1]).reshape(
+            (2, constants.NUM_LIMBS, 3)
+        )
 
         return np.array((player1_obs, player2_obs))
 
 
 class ToribashSettings:
-    """ Class for storing and processing settings for Toribash """
+    """Class for storing and processing settings for Toribash"""
 
     # Default settings
-    DEFAULT_SETTINGS = OrderedDict([
-        ("custom_settings", 1),
-        ("matchframes", 500),
-        ("turnframes", 10),
-        ("engagement_distance", 100),
-        ("engagement_height", 0),
-        ("engagement_rotation", 0),
-        ("gravity_x", 0.0),
-        ("gravity_y", 0.0),
-        ("gravity_z", -9.81),
-        ("damage", 0),
-        ("dismemberment_enable", 1),
-        ("dismemberment_threshold", 100),
-        ("fractures_enable", 0),
-        ("fractures_threshold", 0),
-        ("disqualification_enabled", 0),
-        ("disqualification_flags", 0),
-        ("disqualification_timeout", 0),
-        ("dojo_type", 0),
-        ("dojo_size", 0),
-        ("replay_file", None),
-        ("mod", "classic"),
-        ("replayed_replay", None)
-    ])
+    DEFAULT_SETTINGS: ClassVar = OrderedDict(
+        [
+            ("custom_settings", 1),
+            ("matchframes", 500),
+            ("turnframes", 10),
+            ("engagement_distance", 100),
+            ("engagement_height", 0),
+            ("engagement_rotation", 0),
+            ("gravity_x", 0.0),
+            ("gravity_y", 0.0),
+            ("gravity_z", -9.81),
+            ("damage", 0),
+            ("dismemberment_enable", 1),
+            ("dismemberment_threshold", 100),
+            ("fractures_enable", 0),
+            ("fractures_threshold", 0),
+            ("disqualification_enabled", 0),
+            ("disqualification_flags", 0),
+            ("disqualification_timeout", 0),
+            ("dojo_type", 0),
+            ("dojo_size", 0),
+            ("replay_file", None),
+            ("mod", "classic"),
+            ("replayed_replay", None),
+        ]
+    )
 
     def __init__(self, **kwargs):
         """
@@ -193,47 +200,49 @@ class ToribashSettings:
         # 1-19 should be numbers
         for i, value in enumerate(self.settings[1:19]):
             if not type(value) in (float, int):
-                raise ValueError((
-                    "Setting {} was not of correct type: " +
-                    "Expected float/int, got {}").format(
-                        list(ToribashSettings.DEFAULT_SETTINGS.keys())[i],
-                        type(value))
+                raise ValueError(
+                    (
+                        "Setting {} was not of correct type: "
+                        + "Expected float/int, got {}"
+                    ).format(
+                        list(ToribashSettings.DEFAULT_SETTINGS.keys())[i], type(value)
+                    )
                 )
 
         # 3rd value (turnframes) should be from interval [2,matchframes]
         if self.settings[2] < 1 or self.settings[2] > self.settings[1]:
             raise ValueError(
-                "Setting 'turnframes' should be from interval " +
-                "[1,matchframes].")
+                "Setting 'turnframes' should be from interval " + "[1,matchframes]."
+            )
 
         # 20th value should be a string or None
         if self.settings[19] is not None:
             if type(self.settings[19]) != str:
                 raise ValueError(
-                    "Setting 'replay_file' should be str or None," +
-                    " got %s" % type(self.settings[19])
+                    "Setting 'replay_file' should be str or None,"
+                    f" got {type(self.settings[19])}"
                 )
 
             # Remove commas from 20th value
             if "," in self.settings[19]:
                 warnings.warn(
-                    "Commas ',' are not supported in settings. " +
-                    "Removing.")
+                    "Commas ',' are not supported in settings. " + "Removing."
+                )
                 self.settings[19] = self.settings[19].replace(",", "")
 
         # 22th value (replayed_replay) should be a string or None
         if self.settings[21] is not None:
             if type(self.settings[21]) != str:
                 raise ValueError(
-                    "Setting 'replayed_replay' should be str or None," +
-                    " got %s" % type(self.settings[21])
+                    "Setting 'replayed_replay' should be str or None,"
+                    f" got {type(self.settings[21])}"
                 )
 
             # Remove commas from 20th value
             if "," in self.settings[21]:
                 warnings.warn(
-                    "Commas ',' are not supported in settings. " +
-                    "Removing.")
+                    "Commas ',' are not supported in settings. " + "Removing."
+                )
                 self.settings[21] = self.settings[21].replace(",", "")
 
         # Mod should be a string
@@ -243,35 +252,36 @@ class ToribashSettings:
         # custom_settings with non-default mod may cause
         # unwanted behaviour
         if self.settings[0] != 0 and self.settings[20] != "classic":
-            warnings.warn("Using custom settings with non-classic mod " +
-                          "may cause unwanted behaviour.")
+            warnings.warn(
+                "Using custom settings with non-classic mod "
+                + "may cause unwanted behaviour."
+            )
 
     def set(self, key, value):
-        """ Set given setting to value """
-        self.settings[list(ToribashSettings.DEFAULT_SETTINGS.keys()
-                           ).index(key)] = value
+        """Set given setting to value"""
+        self.settings[list(ToribashSettings.DEFAULT_SETTINGS.keys()).index(key)] = value
 
     def get(self, key):
-        """ Get current value of the setting """
-        return self.settings[list(ToribashSettings.DEFAULT_SETTINGS.keys()
-                                  ).index(key)]
+        """Get current value of the setting"""
+        return self.settings[list(ToribashSettings.DEFAULT_SETTINGS.keys()).index(key)]
 
     def __str__(self):
         return pprint.pformat(
-            dict([(k, v) for k, v in zip(
-                ToribashSettings.DEFAULT_SETTINGS.keys(),
-                self.settings)
-            ]))
+            {
+                key: value
+                for key, value in zip(
+                    ToribashSettings.DEFAULT_SETTINGS.keys(), self.settings
+                )
+            }
+        )
 
 
 class ToribashControl:
-    """ Main class controlling one instance of Toribash """
+    """Main class controlling one instance of Toribash"""
 
-    def __init__(self,
-                 settings=None,
-                 draw_game=False,
-                 executable=constants.TORIBASH_EXE,
-                 port=constants.PORT):
+    def __init__(
+        self, settings=None, draw_game=False, executable=None, port=constants.PORT
+    ):
         """
         Parameters:
             settings: ToribashSettings instance. Uses these settings if
@@ -283,29 +293,36 @@ class ToribashControl:
             port: Port used to listen for connections from Toribash.
                   Defaults to constants.PORT.
                   NOTE: You have to change port in Toribash Lua script as well!
-                        (in {toribash dir}/data/script/remotecontrol.lua )
+                         (in {toribash dir}/data/script/remotecontrol.lua )
         """
-        self.executable_path = executable
+        self.process = None
+        self.connection = None
+        default_executable = constants.get_platform_executable()
+        self.executable_path = executable or default_executable
         # Make sure exe exists
         if not os.path.isfile(self.executable_path):
-            raise ValueError("Toribash executable path is not a file: %s" %
-                             self.executable_path)
+            if executable is None:
+                raise FileNotFoundError(
+                    "Native Toribash executable was not found at "
+                    f"{default_executable}. Install Toribash for this platform "
+                    "or pass executable=path/to/the/native/executable."
+                )
+            raise ValueError(
+                f"Toribash executable path is not a file: {self.executable_path}"
+            )
         # Create path to stderr.txt file which is created by the
         # Toribash executable (next to it)
         self.toribash_stderr_file = os.path.join(
-            os.path.dirname(executable), "stderr.txt"
+            os.path.dirname(self.executable_path), "stderr.txt"
         )
 
-        self.process = None
-        self.connection = None
         self.port = port
 
         # Lets create FileLock file next to toribash.exe
         # Actual FileLock will be done in init() to keep
         # this object pickleable (serializable)
         self.lock_file = os.path.join(
-            os.path.dirname(executable),
-            ".launchlock"
+            os.path.dirname(self.executable_path), ".launchlock"
         )
 
         self.draw_game = draw_game
@@ -334,8 +351,7 @@ class ToribashControl:
         # Use global filelock to avoid mixing up Toribash instances with
         # corresponding Python scripts if we have multiple Toribashes running.
         # Create lock here to make code pickle-able before call to init.
-        init_lock = FileLock(self.lock_file,
-                             timeout=constants.TIMEOUT)
+        init_lock = FileLock(self.lock_file, timeout=constants.TIMEOUT)
         with init_lock:
             if sys.platform == "linux":
                 # Sanity check launching on Linux
@@ -343,29 +359,22 @@ class ToribashControl:
                 # Attempt to make stderr.txt read-only
                 # TODO this will cause headache when trying to remove torille
                 _ = utils.set_file_readonly(self.toribash_stderr_file)
-                # Add wine command explicitly for running on Linux
-                self.process = subprocess.Popen((
-                    "nohup", "wine", self.executable_path),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL)
-            elif sys.platform == "darwin":
-                # Sanity check launching on OSX
-                utils.check_darwin_sanity()
-                # Attempt to make stderr.txt read-only
-                _ = utils.set_file_readonly(self.toribash_stderr_file)
-                # Add wine command for running on osx
-                self.process = subprocess.Popen((
-                    "wine %s" % self.executable_path),
+                self.process = subprocess.Popen(
+                    (self.executable_path,),
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    shell=True)
-            else:
+                )
+            elif sys.platform == "win32":
                 # Launch on Windows (just call the .exe)
                 # Don't try to set stderr.txt to read-only: This will
                 # cause Toribash to crash on Windows
-                self.process = subprocess.Popen((self.executable_path,),
-                                                stdout=subprocess.DEVNULL,
-                                                stderr=subprocess.DEVNULL)
+                self.process = subprocess.Popen(
+                    (self.executable_path,),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                raise RuntimeError(f"Unsupported Toribash platform: {sys.platform}")
             # Create socket for waiting for Toribash to connect
             s = socket.socket()
             # This allows rebinding to same address multiple times on *nix
@@ -376,7 +385,7 @@ class ToribashControl:
             s.bind(("", self.port))
             s.settimeout(constants.TIMEOUT)
             s.listen(1)
-            conn, addr = s.accept()
+            conn, _addr = s.accept()
             # Close the listener socket
             s.close()
 
@@ -392,7 +401,7 @@ class ToribashControl:
         self._send_settings()
 
     def close(self):
-        """ Close the running Toribash instance and clean up """
+        """Close the running Toribash instance and clean up"""
         self._check_if_initialized()
         self.connection.close()
         # No need to be gentle here
@@ -431,10 +440,10 @@ class ToribashControl:
         s = list(map(float, s.split(",")))
         # Make sure we got list of correct length
         if len(s) != constants.STATE_LENGTH:
-            raise ValueError((
-                "Got state of invalid size. Expected %d, got %d" +
-                "\nState: %s") %
-                (constants.STATE_LENGTH, len(s), s))
+            raise ValueError(
+                ("Got state of invalid size. Expected %d, got %d" + "\nState: %s")
+                % (constants.STATE_LENGTH, len(s), s)
+            )
         return s, terminal, winner
 
     def _send_comma_list(self, s, data):
@@ -485,14 +494,15 @@ class ToribashControl:
 
         # Make sure we are allowed to do a reset
         if not self.requires_reset:
-            raise RuntimeError("Calling `reset()` is only allowed " +
-                               "after terminal states")
+            raise RuntimeError(
+                "Calling `reset()` is only allowed " + "after terminal states"
+            )
 
         self._send_settings()
 
         self.requires_get_state = True
 
-        s, terminal = self.get_state()
+        s, _terminal = self.get_state()
         self.requires_reset = False
 
         return s
@@ -517,21 +527,26 @@ class ToribashControl:
             raise ValueError("Actions should be a List of two lists")
 
         # Check that we have correct number of states
-        if (len(actions[0]) != constants.NUM_CONTROLLABLES or
-                len(actions[1]) != constants.NUM_CONTROLLABLES):
+        if (
+            len(actions[0]) != constants.NUM_CONTROLLABLES
+            or len(actions[1]) != constants.NUM_CONTROLLABLES
+        ):
             raise ValueError(
-                "Actions should be a List of shape 2 x %d" %
-                constants.NUM_CONTROLLABLES
+                f"Actions should be a List of shape 2 x {constants.NUM_CONTROLLABLES}"
             )
 
         # Check that all joint states are in {1,2,3,4}
         for i in range(constants.NUM_CONTROLLABLES):
             # Check both players at the same time
-            if (actions[0][i] > 4 or actions[0][i] < 1 or actions[1][i] > 4 or
-                    actions[1][i] < 1):
+            if (
+                actions[0][i] > 4
+                or actions[0][i] < 1
+                or actions[1][i] > 4
+                or actions[1][i] < 1
+            ):
                 raise ValueError(
-                    "Joint states should be in {1,2,3,4}. " +
-                    "Note: Gym environments take in {0,1,2,3}"
+                    "Joint states should be in {1,2,3,4}. "
+                    + "Note: Gym environments take in {0,1,2,3}"
                 )
 
     def make_actions(self, actions):
@@ -583,8 +598,10 @@ class ToribashControl:
         if self.requires_reset:
             return
 
-        dummy_action = [[3] * constants.NUM_CONTROLLABLES,
-                        [3] * constants.NUM_CONTROLLABLES]
+        dummy_action = [
+            [3] * constants.NUM_CONTROLLABLES,
+            [3] * constants.NUM_CONTROLLABLES,
+        ]
 
         terminal = False
         # Start with get_state if we need it
@@ -612,8 +629,10 @@ class ToribashControl:
         self._check_if_initialized()
 
         if not self.requires_reset:
-            raise RuntimeError("Reading replays is only allowed " +
-                               "between games (requires call to reset")
+            raise RuntimeError(
+                "Reading replays is only allowed "
+                + "between games (requires call to reset"
+            )
 
         # Check that replay file actually exists
         full_replay_path = os.path.join(
@@ -621,7 +640,7 @@ class ToribashControl:
         )
 
         if not os.path.isfile(full_replay_path):
-            raise RuntimeError("Replay file %s does not exist" % replay_file)
+            raise RuntimeError(f"Replay file {replay_file} does not exist")
 
         # Change settings
         self.settings.set("replayed_replay", replay_file)
@@ -631,8 +650,10 @@ class ToribashControl:
         # Begin playing episode
         # These dummy actions are not actually being executed,
         # but we send them to signal we received the state
-        dummy_action = [[3] * constants.NUM_CONTROLLABLES,
-                        [3] * constants.NUM_CONTROLLABLES]
+        dummy_action = [
+            [3] * constants.NUM_CONTROLLABLES,
+            [3] * constants.NUM_CONTROLLABLES,
+        ]
 
         # Reset and go through the episode till terminal states
         states.append(self.reset())
@@ -649,15 +670,15 @@ class ToribashControl:
         return states
 
     def get_state_dim(self):
-        """ Return size of state space per character """
+        """Return size of state space per character"""
         return constants.NUM_LIMBS * 3
 
     def get_num_joints(self):
-        """ Return number of controllable joints """
+        """Return number of controllable joints"""
         return constants.NUM_CONTROLLABLES
 
     def get_num_joint_states(self):
-        """ Return number of states each joint can have """
+        """Return number of states each joint can have"""
         return constants.NUM_JOINT_STATES
 
     def __del__(self):

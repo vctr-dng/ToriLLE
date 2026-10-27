@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-#
 #  constants.py
 #  File holding all constants for Torille
 #
@@ -21,6 +19,8 @@
 #  MA 02110-1301, USA.
 #
 import os
+import sys
+from pathlib import Path
 
 # Port where Toribashes connect to
 PORT = 7788
@@ -29,7 +29,7 @@ TIMEOUT = 300
 # Buffer size (for recv)
 BUFFER_SIZE = 8096
 # Line ending character
-MESSAGE_END = "\n".encode()
+MESSAGE_END = b"\n"
 
 # "Limb" or "Bodypart"
 NUM_LIMBS = 21
@@ -43,18 +43,27 @@ NUM_SETTINGS = 19
 # Bodypart x,y,z + Bodypart x,y,z velocities +
 # groin rotation + Joint states + hand grips + injuries + selected player
 # + frame info (x3)
-STATE_LENGTH = (
-    (NUM_LIMBS * 3 * 2) * 2 +
-    16 * 2 +
-    NUM_JOINTS * 2 +
-    4 + 2 + 1 + 3
+STATE_LENGTH = (NUM_LIMBS * 3 * 2) * 2 + 16 * 2 + NUM_JOINTS * 2 + 4 + 2 + 1 + 3
+
+# Path to Toribash supplied with the wheel package on Windows.
+PACKAGE_TORIBASH_EXE = os.path.join(
+    os.path.dirname(os.path.realpath(__file__)), "toribash", "toribash.exe"
 )
 
-# Path to Toribash supplied with the wheel package
-# This should be {this file}/toribash/toribash.exe
-my_dir = os.path.dirname(os.path.realpath(__file__))
-TORIBASH_EXE = os.path.join(my_dir, "toribash", "toribash.exe")
 
-# Path to Toribash's stderr.txt file, which
-# will be filled with bunch of errors unless handled separately
-TORIBASH_STDERR_FILE = os.path.join(my_dir, "toribash", "stderr.txt")
+def get_platform_executable(platform=None):
+    """Return the default native Toribash executable for the current platform."""
+    platform = platform or sys.platform
+    if platform == "linux":
+        data_home = Path(
+            os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")
+        )
+        return str(
+            data_home / "Steam" / "steamapps" / "common" / "Toribash" / "toribash_steam"
+        )
+    if platform == "win32":
+        return PACKAGE_TORIBASH_EXE
+    raise RuntimeError(
+        "Toribash is only supported on Linux and Windows; "
+        f"detected platform: {platform}"
+    )

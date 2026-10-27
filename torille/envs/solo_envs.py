@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-#
 #  solo_envs.py
 #  ToriLLE Gym environments with solo tasks (e.g. run-away, self-destruct)
 #
@@ -23,22 +21,22 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 
-import gym
-from gym import spaces
-from .gym_env import ToriEnv
-from .. import torille
 import numpy as np
+from gymnasium import spaces
+
+from .. import torille
+from .gym_env import ToriEnv
 
 
 def reward_self_destruct(old_state, new_state):
-    """ Returns reward for plr0 receiving damage """
+    """Returns reward for plr0 receiving damage"""
     reward = new_state.injuries[0] - old_state.injuries[0]
     reward = reward / 5000
     return reward
 
 
 def reward_stay_safe(old_state, new_state):
-    """ Returns reward for plr0 NOT receiving damage """
+    """Returns reward for plr0 NOT receiving damage"""
     # Injury can only increase
     reward = -(old_state.injuries[0] - new_state.injuries[0])
     reward = reward / 5000
@@ -55,26 +53,24 @@ def reward_run_away(old_state, new_state):
     new_pos = new_state.limb_positions[0, 0]
     # Amount moved away from center
     # (we want further away to be positive)
-    moved = np.sqrt(np.sum(new_pos ** 2)) - np.sqrt(np.sum(old_pos ** 2))
+    moved = np.sqrt(np.sum(new_pos**2)) - np.sqrt(np.sum(old_pos**2))
     return moved
 
 
 class SoloToriEnv(ToriEnv):
-    """ An extension to ToriEnv designed for controlling only one body """
+    """An extension to ToriEnv designed for controlling only one body"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
         self.reward_func = kwargs["reward_func"]
 
-        self.action_space = spaces.MultiDiscrete((
-            [torille.constants.NUM_JOINT_STATES] *
-            torille.constants.NUM_CONTROLLABLES
-        ))
+        self.action_space = spaces.MultiDiscrete(
+            [torille.constants.NUM_JOINT_STATES] * torille.constants.NUM_CONTROLLABLES
+        )
         # Only one player
         self.observation_space = spaces.Box(
-            low=-30, high=30, dtype=np.float32,
-            shape=(torille.constants.NUM_LIMBS * 3,)
+            low=-30, high=30, dtype=np.float32, shape=(torille.constants.NUM_LIMBS * 3,)
         )
 
     def _preprocess_observation(self, state):

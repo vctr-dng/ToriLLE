@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-#
 #  uke_nevsd.py
 #  ToriLLE Gym environments for single player but info on both players
 #
@@ -23,16 +21,17 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 
-import gym
-from gym import spaces
-from .gym_env import ToriEnv
-from .. import torille
-import numpy as np
 import random as r
+
+import numpy as np
+from gymnasium import spaces
+
+from .. import torille
+from .gym_env import ToriEnv
 
 
 def reward_destroy_uke(old_state, new_state):
-    """ Returns reward on damaging the other player (Uke) """
+    """Returns reward on damaging the other player (Uke)"""
     reward = new_state.injuries[1] - old_state.injuries[1]
     reward = reward / 5000
     return reward
@@ -64,14 +63,15 @@ class UkeToriEnv(ToriEnv):
         self.random_uke = kwargs["random_uke"]
 
         # Create action space only for the first player
-        self.action_space = spaces.MultiDiscrete((
-            [torille.constants.NUM_JOINT_STATES] *
-            torille.constants.NUM_CONTROLLABLES
-        ))
+        self.action_space = spaces.MultiDiscrete(
+            [torille.constants.NUM_JOINT_STATES] * torille.constants.NUM_CONTROLLABLES
+        )
         # observation space for both players
         self.observation_space = spaces.Box(
-            low=-30, high=30, dtype=np.float32,
-            shape=(torille.constants.NUM_LIMBS * 3 * 2,)
+            low=-30,
+            high=30,
+            dtype=np.float32,
+            shape=(torille.constants.NUM_LIMBS * 3 * 2,),
         )
 
     def _preprocess_observation(self, state):
@@ -102,8 +102,7 @@ class UkeToriEnv(ToriEnv):
             # Add random actions for uke
             action = [
                 action,
-                [r.randint(1, 4) for i in
-                    range(torille.constants.NUM_CONTROLLABLES)]
+                [r.randint(1, 4) for i in range(torille.constants.NUM_CONTROLLABLES)],
             ]
         return action
 
