@@ -37,8 +37,6 @@ NUM_JOINTS = 20
 # Add hand_grips
 NUM_CONTROLLABLES = NUM_JOINTS + 2
 NUM_JOINT_STATES = 4
-# Number of setting variables
-NUM_SETTINGS = 19
 
 # Bodypart x,y,z + Bodypart x,y,z velocities +
 # groin rotation + Joint states + hand grips + injuries + selected player
