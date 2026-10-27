@@ -30,3 +30,7 @@ repos:
         args: [torille, tests]
         pass_filenames: false
         language: system
+  - repo: https://github.com/JohnnyMorganz/StyLua
+    rev: v2.6.0
+    hooks:
+      - id: stylua-github
