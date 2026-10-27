@@ -108,11 +108,13 @@ class DuoToriEnv(ToriEnv):
         )
         # For both players, relative position of both players
         # (Two perspectives, two players -> 4 * number of limbs)
-        self.observation_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            dtype=np.float32,
-            shape=(torille.constants.NUM_LIMBS * 3 * 2 * 2,),
+        self._set_observation_space(
+            spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                dtype=np.float32,
+                shape=(torille.constants.NUM_LIMBS * 3 * 2 * 2,),
+            )
         )
 
     def _preprocess_observation(self, state):

@@ -28,6 +28,11 @@ import numpy as np
 from gymnasium import spaces
 
 from .. import torille
+from .observations import (
+    OBSERVATION_TYPES,
+    dict_observation_space,
+    state_to_dict_observation,
+)
 
 
 class ToriEnv(gym.Env):
@@ -39,7 +44,22 @@ class ToriEnv(gym.Env):
         _reward_function
     """
 
-    def __init__(self, executable=None, install_native_controller=True, **kwargs):
+    # "box" (flat, per environment) or "dict" (see observations.py)
+    observation_type = "box"
+
+    def __init__(
+        self,
+        executable=None,
+        install_native_controller=True,
+        observation_type="box",
+        **kwargs,
+    ):
+        if observation_type not in OBSERVATION_TYPES:
+            raise ValueError(
+                f"observation_type must be one of {OBSERVATION_TYPES}, "
+                f"got {observation_type!r}"
+            )
+        self.observation_type = observation_type
         self.settings = torille.ToribashSettings(**kwargs)
         self.game = torille.ToribashControl(
             settings=self.settings,
@@ -61,12 +81,34 @@ class ToriEnv(gym.Env):
             * 2
         )
         # For both players, position of all joints
-        self.observation_space = spaces.Box(
-            low=-30,
-            high=30,
-            dtype=np.float32,
-            shape=(2, torille.constants.NUM_LIMBS * 3),
+        self._set_observation_space(
+            spaces.Box(
+                low=-30,
+                high=30,
+                dtype=np.float32,
+                shape=(2, torille.constants.NUM_LIMBS * 3),
+            )
         )
+
+    def _set_observation_space(self, box_space):
+        """
+        Set `observation_space`: `box_space` (the environment's flat
+        observation) by default, or the `Dict` space if the environment was
+        created with `observation_type="dict"`. Subclasses call this instead
+        of assigning `observation_space`.
+        """
+        if self.observation_type == "dict":
+            self.observation_space = dict_observation_space(
+                self.settings.get("matchframes")
+            )
+        else:
+            self.observation_space = box_space
+
+    def _observe(self, state):
+        """Convert a ToribashState into an observation of `observation_space`."""
+        if self.observation_type == "dict":
+            return state_to_dict_observation(state)
+        return self._preprocess_observation(state)
 
     def _preprocess_observation(self, state):
         """
@@ -124,7 +166,7 @@ class ToriEnv(gym.Env):
         # Remember to update the old state
         self.old_state = state
         # "obs" here is in the Gym format. "state" is ToribashState
-        obs = self._preprocess_observation(state)
+        obs = self._observe(state)
         # Reaching the match length is a time limit (truncation). Any other
         # end of the game is a natural ending of the task (termination).
         truncated = terminal and state.match_frame >= state.match_length
@@ -145,7 +187,7 @@ class ToriEnv(gym.Env):
             # The env was just created and we need to start
             # by returning an observation.
             state, _terminal = self.game.get_state()
-            obs = self._preprocess_observation(state)
+            obs = self._observe(state)
             # Remember to update the state here as well
             self.old_state = state
             self.just_created = False
@@ -153,7 +195,7 @@ class ToriEnv(gym.Env):
             # Reset episode
             state = self.game.reset()
             # Get the state and return it
-            obs = self._preprocess_observation(state)
+            obs = self._observe(state)
             self.old_state = state
         return obs, {}
 
@@ -176,5 +218,10 @@ class ToriEnv(gym.Env):
         self.game.close()
 
     def seed(self, seed=None):
-        # Can't set the seed in Toribash
-        raise NotImplementedError
+        """
+        Reseed `np_random`, the generator for randomness in the environment
+        (the random opponent of `Toribash-DestroyUke-v2`). Prefer
+        `reset(seed=...)`. The game has no seed to set, see docs/envs.md.
+        """
+        self._np_random, self._np_random_seed = gym.utils.seeding.np_random(seed)
+        return [self._np_random_seed]
