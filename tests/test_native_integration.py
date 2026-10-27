@@ -187,3 +187,58 @@ def test_dict_observation_env_plays_and_is_deterministic():
             np.testing.assert_array_equal(first[key], second[key])
     finally:
         env.close()
+
+
+def _play_with_think_time(draw_game, turnframes, spin_ms, delays, turns):
+    """Play `turns` turns with fixed actions; return observations and frames."""
+    env = gym.make(
+        "Toribash-DestroyUke-v2",
+        matchframes=300 * turnframes,
+        turnframes=turnframes,
+    )
+    env.unwrapped.set_draw_game(draw_game)
+    env.unwrapped.game.spin_ms = spin_ms
+    env.action_space.seed(0)
+    rng = np.random.default_rng(0)
+    observations, frames, resets = [], [], []
+    try:
+        env.reset(seed=0)
+        for turn in range(turns):
+            time.sleep(delays[rng.integers(len(delays))])
+            obs, _, terminated, truncated, info = env.step(env.action_space.sample())
+            observations.append(obs["position"] if isinstance(obs, dict) else obs)
+            frames.append(info["match_frame"])
+            if terminated or truncated:
+                resets.append(turn)
+                env.reset()
+    finally:
+        env.close()
+    return np.array(observations), frames, resets
+
+
+@pytest.mark.parametrize(("draw_game", "turnframes"), [(False, 1), (True, 2)])
+def test_bridge_does_not_desync_over_hundreds_of_turns(draw_game, turnframes):
+    """Every turn yields exactly one state and the game advances predictably.
+
+    Python's think time is varied around the Lua-side spin window, so both the
+    in-hook pickup and the per-frame fallback are exercised (including
+    responses landing right at the edge of the window). The trajectory must be
+    identical whichever path picked up the actions.
+    """
+    delays = [0, 0, 0.001, 0.004, 0.0055, 0.015]
+    turns = 400
+    reference, ref_frames, ref_resets = _play_with_think_time(
+        draw_game, turnframes, 0.0, [0], turns
+    )
+    observations, frames, resets = _play_with_think_time(
+        draw_game, turnframes, 5.0, delays, turns
+    )
+
+    assert len(frames) == turns
+    assert resets == ref_resets
+    assert frames == ref_frames
+    # frames advance monotonically within an episode, no skipped or repeated turns
+    for index in range(1, turns):
+        if index - 1 not in resets:
+            assert frames[index] > frames[index - 1], f"desync at turn {index}"
+    np.testing.assert_array_equal(observations, reference)
