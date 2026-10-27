@@ -22,6 +22,7 @@ Tested with Python 3.14 on Linux and Windows.
 
 * A native Toribash installation
   * Linux: Steam installs `toribash_steam` under `$XDG_DATA_HOME/Steam/steamapps/common/Toribash/`. When `XDG_DATA_HOME` is unset, ToriLLE uses `~/.local/share`.
+    ToriLLE must be able to write to this directory while a controller is running.
   * Windows: ToriLLE uses the packaged `toribash.exe` by default.
 * An active display for Toribash's OpenGL renderer. See the [FAQ](docs/faq.md) for headless Linux setups.
 
@@ -83,6 +84,7 @@ You can install ToriLLE without PyPI/pip with the following:
   ```python
   toribash = ToribashControl(executable="/path/to/toribash_steam")
   ```
+  ToriLLE temporarily adds its native controller script to `profile.tbs` and restores the original profile when `close()` is called.
 
 ## Playing in multiplayer
 

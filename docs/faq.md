@@ -91,6 +91,10 @@ happens between rounds. If Toribash is ran for days and thousands games in row, 
 
 ToriLLE Python code attempts to set this file read-only to prevent Toribash from writing to the file.
 
+## Why does native Linux Toribash not connect?
+
+ToriLLE starts the Steam-native executable from its installation directory and temporarily installs a file-based Lua controller. Start Steam, ensure the account owns Toribash, and ensure the game directory is writable. The game still requires a valid `DISPLAY` for OpenGL.
+
 ## Toribash launches with large window / limited FPS, or trying to launch vanilla Toribash has weird settings?
 
 With Steam version of Toribash / Toribash 5.4, settings file of for Toribash is stored in user's home directory under
