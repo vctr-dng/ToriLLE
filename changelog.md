@@ -1,5 +1,11 @@
 ### Unreleased
 
+* Opt-in direct launch and instance pool (Linux): `launch_mode="direct"`, `game_dir=` and `display=` on
+  `ToribashControl`, the Gym envs and `TwoPlayerToriEnv` start the game executable themselves from a copy of
+  the game directory (with `SteamAppId`, own process group, cleaned up on close/exit/failed launch), so several
+  games can run at once; the Steam client must be running. `torille.pool.InstancePool(n)` makes the copies and one
+  Xvfb per instance. The default (`launch_mode="steam"`, `steam -applaunch`) is unchanged. This starts the game outside the
+  Steam launcher with the user's own licence; the Toribash terms were not reviewed. See docs/envs.md and docs/parallelism.md.
 * Optional RGB frame capture of the game window (Linux/X11), aligned to turn
   boundaries: `capture_size=N` adds an `rgb` key (N x N x 3 uint8) to the dict
   observation, `render_mode="rgb_array"` makes `render()` return the latest

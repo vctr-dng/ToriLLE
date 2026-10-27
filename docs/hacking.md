@@ -130,8 +130,10 @@ from `pre_draw` and `new_game`. Details of the camera API, found by experiment o
 ## Tests
 
 `uv run pytest` runs the unit tests. `uv run pytest -m native` also plays real games, which
-needs Steam, Toribash and a `DISPLAY`. Only one Toribash instance can run at a time: `tests/conftest.py` takes
+needs Steam, Toribash and a `DISPLAY`. Only one Steam-launched Toribash instance can run at a time: `tests/conftest.py` takes
 `/tmp/toribash-game.lock` for native tests, so do not wrap pytest in `flock` yourself (it would deadlock).
+`tests/test_native_parallel.py` runs direct-launch instances on copies and Xvfb displays and is skipped if the Steam client is not running
+or Xvfb is missing; the direct instances themselves never take that lock.
 
 ## Communication
 
