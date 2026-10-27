@@ -10,7 +10,12 @@
 * Native controller script and bridge files are removed on `close()`.
 * Settings validation reports the correct setting name and accepts numpy numbers.
 * `torille.__version__` is read from the package metadata.
-* Tests run with pytest; ruff and pytest are in the uv dev group.
+* `draw_game=False` now runs the native game without the fixed frame rate
+  (about 2x faster than real time). The window is still shown.
+* Fixed the native controller stalling after a reset when it read a consumed,
+  empty action file as an action.
+* Tests run with pytest; ruff and pytest are in the uv dev group. Tests that
+  play real games are opt-in with `pytest -m native`.
 
 ### 31.8.2023 v1.0.3
 

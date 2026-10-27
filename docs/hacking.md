@@ -42,6 +42,11 @@ File | Written by | Content
 Each reader consumes its file after reading it. Lua cannot rename files, so it rewrites `state`
 in place. Python therefore only accepts a state once it ends in a newline.
 
+## Tests
+
+`uv run pytest` runs the unit tests. `uv run pytest -m native` also plays real games, which
+needs Steam, Toribash and a `DISPLAY`. Only one Toribash instance can run at a time.
+
 ## Communication
 
 See `protocol/` for detailed explanations on the messages between controller and Toribash Lua scripts.
