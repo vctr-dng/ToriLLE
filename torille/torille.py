@@ -18,6 +18,7 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 #
+import atexit
 import numbers
 import os
 import pprint
@@ -27,6 +28,7 @@ import subprocess
 import sys
 import time
 import warnings
+import weakref
 from collections import OrderedDict
 from copy import deepcopy
 from pathlib import Path
@@ -119,6 +121,12 @@ class NativeSteamProcess:
             os.kill(self.pid, 9)
         except ProcessLookupError:
             pass
+
+
+def _cleanup_at_exit(controller_ref):
+    controller = controller_ref()
+    if controller is not None:
+        controller._cleanup()
 
 
 class ToribashState:
@@ -538,11 +546,17 @@ class ToribashControl:
                 self.native_bridge = NativeFileBridge(
                     os.path.dirname(self.executable_path)
                 )
-                self.native_bridge.prepare()
-                self._install_native_controller()
-                self.settings.validate_settings()
-                self._write_native_settings()
-                self.process = self._launch_native_game()
+                # Leave the game directory as we found it, however we exit
+                atexit.register(_cleanup_at_exit, weakref.ref(self))
+                try:
+                    self.native_bridge.prepare()
+                    self._install_native_controller()
+                    self.settings.validate_settings()
+                    self._write_native_settings()
+                    self.process = self._launch_native_game()
+                except BaseException:
+                    self._cleanup()
+                    raise
             elif sys.platform == "win32":
                 # Launch on Windows (just call the .exe)
                 # Don't try to set stderr.txt to read-only: This will
@@ -577,11 +591,19 @@ class ToribashControl:
         self._check_if_initialized()
         if self.connection is not None:
             self.connection.close()
+        self._cleanup()
+
+    def _cleanup(self):
+        """
+        Kill the game and undo changes made to the game directory.
+        Safe to call more than once.
+        """
         # No need to be gentle here
         process = self.process
         self.process = None
         try:
-            process.kill()
+            if process is not None:
+                process.kill()
         except ProcessLookupError:
             pass
         finally:
