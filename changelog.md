@@ -7,7 +7,9 @@
   `winner`, `injuries` and `match_frame` in `info`.
 * Native state messages are only accepted when complete, and a crashed game
   is detected immediately instead of after the connection timeout.
-* Native controller script and bridge files are removed on `close()`.
+* Native controller script and bridge files are removed on `close()`, and also
+  when Python exits without it (Ctrl-C, crashes, `sys.exit`) or the launch fails.
+  Killing Python with SIGTERM still bypasses this cleanup.
 * Settings validation reports the correct setting name and accepts numpy numbers.
 * `torille.__version__` is read from the package metadata.
 * `draw_game=False` now runs the native game without the fixed frame rate
