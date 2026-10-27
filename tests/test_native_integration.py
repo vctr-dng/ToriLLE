@@ -2,6 +2,10 @@
 
 import os
 import shutil
+import subprocess
+import sys
+import textwrap
+import time
 from pathlib import Path
 
 import gymnasium as gym
@@ -48,3 +52,43 @@ def test_episodes_end_by_truncation_and_env_can_reset(draw_game):
             observation, _ = env.reset()
     finally:
         env.close()
+
+
+def test_game_is_stopped_and_directory_restored_when_python_exits_without_close():
+    game_directory = Path(constants.get_platform_executable()).parent
+    profile = game_directory / "profile.tbs"
+    original_profile = profile.read_text(encoding="utf-8")
+    script = textwrap.dedent(
+        """
+        import gymnasium as gym
+
+        import torille.envs
+        from torille.torille import ToribashControl
+
+        # __del__ is not guaranteed to run at shutdown, so only atexit may clean up
+        ToribashControl.__del__ = lambda self: None
+
+        env = gym.make("Toribash-DestroyUke-v0", matchframes=100, turnframes=5)
+        env.reset()
+        env.step(env.action_space.sample())
+        # Exit without calling env.close()
+        """
+    )
+
+    subprocess.run([sys.executable, "-I", "-c", script], check=True, timeout=120)
+
+    assert profile.read_text(encoding="utf-8") == original_profile
+    assert not (game_directory / ".torille").exists()
+    assert not (
+        game_directory / "data" / "script" / "remotecontrol_native.lua"
+    ).exists()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if (
+            subprocess.run(["pgrep", "-x", "toribash_steam"], check=False).returncode
+            != 0
+        ):
+            break
+        time.sleep(0.2)
+    else:
+        pytest.fail("Toribash is still running")
