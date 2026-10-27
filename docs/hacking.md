@@ -109,10 +109,29 @@ Interleaved A/B in one game launch (`scripts/ab_turns.py`, 8 rounds of 100 turns
 * `draw_game=True` stays frame-limited (`fixedframerate=1`, about 26 ms per frame), and larger `turnframes`
   shrink the relative gain because per-frame time dominates.
 
+## RGB capture notes
+
+The capture path is `torille/capture.py` (window lookup and `XShmGetImage` through ctypes, crop and resize in numpy) and
+`ToribashControl.grab_frame()`. The Lua side only changes when the settings file has a fourth line `1` (capture mode): then
+`remotecontrol_native.lua` disables the HUD and the joint flash, and calls `place_camera()` (free camera, angle, look-at, position, ghost off)
+from `pre_draw` and `new_game`. Details of the camera API, found by experiment on build 20840792:
+
+* `set_camera_pos` / `set_camera_lookat` in free mode (`set_camera_mode(3)`) are not enough: the rendered direction follows
+  `set_camera_angle`, and the game moves the look-at point (reading `get_camera_info()` shows it) after the hook that set it. Setting everything
+  in `pre_draw` each frame is stable (readback unchanged over many turns).
+* The `camera` hook did not help (frames went blank), and applying the camera once in `new_game` is overridden after the first turn.
+* Ghost: a looping preview that keeps animating while the game waits. `set_ghost(0)` stops it.
+* `jointflash` (an option saved in the user's config) makes the joint colour fade in over about 0.7 s after a turn.
+  `trails`, `jointobjopacity`, `effects`, `motionblur` and `blood` did not remove that transient.
+* The pause between a state and the picture of that state was measured with small region grabs right after `get_state()`: stale for up to
+  about 15 ms after a turn and 25 ms after a reset. Publishing the state one frame later from Lua made no measurable difference, so a settle wait
+  in Python is used instead.
+
 ## Tests
 
 `uv run pytest` runs the unit tests. `uv run pytest -m native` also plays real games, which
-needs Steam, Toribash and a `DISPLAY`. Only one Toribash instance can run at a time.
+needs Steam, Toribash and a `DISPLAY`. Only one Toribash instance can run at a time: `tests/conftest.py` takes
+`/tmp/toribash-game.lock` for native tests, so do not wrap pytest in `flock` yourself (it would deadlock).
 
 ## Communication
 

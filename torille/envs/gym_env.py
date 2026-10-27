@@ -22,6 +22,7 @@
 #  MA 02110-1301, USA.
 
 from copy import deepcopy
+from typing import ClassVar
 
 import gymnasium as gym
 import numpy as np
@@ -46,12 +47,18 @@ class ToriEnv(gym.Env):
 
     # "box" (flat, per environment) or "dict" (see observations.py)
     observation_type = "box"
+    metadata: ClassVar = {"render_modes": [None, "rgb_array"]}
 
     def __init__(
         self,
         executable=None,
         install_native_controller=True,
         observation_type="box",
+        draw_game=False,
+        render_mode=None,
+        capture_size=None,
+        capture_crop="center",
+        capture_display=None,
         **kwargs,
     ):
         if observation_type not in OBSERVATION_TYPES:
@@ -59,13 +66,36 @@ class ToriEnv(gym.Env):
                 f"observation_type must be one of {OBSERVATION_TYPES}, "
                 f"got {observation_type!r}"
             )
+        if render_mode not in self.metadata["render_modes"]:
+            raise ValueError(
+                f"render_mode must be one of {self.metadata['render_modes']}, "
+                f"got {render_mode!r}"
+            )
+        if capture_size is not None and observation_type != "dict":
+            raise ValueError(
+                "capture_size adds an `rgb` key to the observation and needs "
+                "observation_type='dict'. For `render()` only, use "
+                "render_mode='rgb_array'."
+            )
         self.observation_type = observation_type
+        self.render_mode = render_mode
+        # Frames are captured for the `rgb` observation and for `render()`.
+        self.capture_rgb_observation = capture_size is not None
+        if render_mode == "rgb_array" and capture_size is None:
+            capture_size = 256
+        self.capture_size = capture_size
         self.settings = torille.ToribashSettings(**kwargs)
         self.game = torille.ToribashControl(
             settings=self.settings,
+            draw_game=draw_game,
             executable=executable,
             install_native_controller=install_native_controller,
+            capture_size=capture_size,
+            capture_crop=capture_crop,
+            capture_display=capture_display,
         )
+        self._frame = None
+        self._frame_match_frame = None
 
         # Previous state (ToribashState)
         # Used for reward function
@@ -99,7 +129,8 @@ class ToriEnv(gym.Env):
         """
         if self.observation_type == "dict":
             self.observation_space = dict_observation_space(
-                self.settings.get("matchframes")
+                self.settings.get("matchframes"),
+                self.capture_size if self.capture_rgb_observation else None,
             )
         else:
             self.observation_space = box_space
@@ -107,7 +138,10 @@ class ToriEnv(gym.Env):
     def _observe(self, state):
         """Convert a ToribashState into an observation of `observation_space`."""
         if self.observation_type == "dict":
-            return state_to_dict_observation(state)
+            observation = state_to_dict_observation(state)
+            if self.capture_rgb_observation:
+                observation["rgb"] = self._capture_frame(state).copy()
+            return observation
         return self._preprocess_observation(state)
 
     def _preprocess_observation(self, state):
@@ -187,6 +221,7 @@ class ToriEnv(gym.Env):
             # The env was just created and we need to start
             # by returning an observation.
             state, _terminal = self.game.get_state()
+            self._frame = None
             obs = self._observe(state)
             # Remember to update the state here as well
             self.old_state = state
@@ -194,6 +229,7 @@ class ToriEnv(gym.Env):
         else:
             # Reset episode
             state = self.game.reset()
+            self._frame = None
             # Get the state and return it
             obs = self._observe(state)
             self.old_state = state
@@ -211,8 +247,25 @@ class ToriEnv(gym.Env):
         else:
             self.game.draw_game = visibility
 
-    def render(self, **kwargs):
-        raise NotImplementedError("See `set_draw_game` for displaying game")
+    def _capture_frame(self, state):
+        """Frame of the displayed state `state` (grabbed once per state)."""
+        if self._frame is None or self._frame_match_frame != state.match_frame:
+            self._frame = self.game.grab_frame()
+            self._frame_match_frame = state.match_frame
+        return self._frame
+
+    def render(self):
+        """
+        With `render_mode="rgb_array"`: the `(capture_size, capture_size, 3)`
+        uint8 frame of the current turn boundary (the state of the last
+        `reset()` or `step()`). Without a render mode the game window is
+        the display, see `set_draw_game`.
+        """
+        if self.render_mode != "rgb_array":
+            return None
+        if self.old_state is None:
+            raise RuntimeError("`render` was called before `reset`.")
+        return self._capture_frame(self.old_state).copy()
 
     def close(self, **kwargs):
         self.game.close()

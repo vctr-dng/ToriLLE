@@ -13,11 +13,12 @@ import numpy as np
 from gymnasium import spaces
 
 from .. import constants
+from ..capture import capture_observation_space
 
 OBSERVATION_TYPES = ("box", "dict")
 
 
-def dict_observation_space(match_frames):
+def dict_observation_space(match_frames, capture_size=None):
     """
     Space of the `Dict` observation.
 
@@ -34,22 +35,26 @@ def dict_observation_space(match_frames):
         match_frame: (1,) frames played so far, in [0, match_frames].
         frames_next_turn: (1,) frames the next turn will last, in
             [0, match_frames].
+        rgb: only if `capture_size` is given: (capture_size, capture_size, 3)
+            uint8 frame of the game window at the turn boundary, see
+            `torille.capture`.
 
     Positions and velocities are unbounded (+-inf): bodies can be flung
     arbitrarily far when joints are dismembered.
     """
     limbs = (2, constants.NUM_LIMBS, 3)
-    return spaces.Dict(
-        {
-            "positions": spaces.Box(-np.inf, np.inf, limbs, np.float32),
-            "groin_height": spaces.Box(-np.inf, np.inf, (2,), np.float32),
-            "velocities": spaces.Box(-np.inf, np.inf, limbs, np.float32),
-            "joint_states": spaces.Box(0.0, 4.0, (2, constants.NUM_JOINTS), np.float32),
-            "grips": spaces.Box(0.0, 1.0, (2, 2), np.float32),
-            "match_frame": spaces.Box(0.0, float(match_frames), (1,), np.float32),
-            "frames_next_turn": spaces.Box(0.0, float(match_frames), (1,), np.float32),
-        }
-    )
+    observation = {
+        "positions": spaces.Box(-np.inf, np.inf, limbs, np.float32),
+        "groin_height": spaces.Box(-np.inf, np.inf, (2,), np.float32),
+        "velocities": spaces.Box(-np.inf, np.inf, limbs, np.float32),
+        "joint_states": spaces.Box(0.0, 4.0, (2, constants.NUM_JOINTS), np.float32),
+        "grips": spaces.Box(0.0, 1.0, (2, 2), np.float32),
+        "match_frame": spaces.Box(0.0, float(match_frames), (1,), np.float32),
+        "frames_next_turn": spaces.Box(0.0, float(match_frames), (1,), np.float32),
+    }
+    if capture_size is not None:
+        observation["rgb"] = capture_observation_space(capture_size)
+    return spaces.Dict(observation)
 
 
 def state_to_dict_observation(state):

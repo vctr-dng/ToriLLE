@@ -1,5 +1,14 @@
 ### Unreleased
 
+* Optional RGB frame capture of the game window (Linux/X11), aligned to turn
+  boundaries: `capture_size=N` adds an `rgb` key (N x N x 3 uint8) to the dict
+  observation, `render_mode="rgb_array"` makes `render()` return the latest
+  frame, `capture_crop` is `"center"` or `"letterbox"`, `capture_display`
+  picks the X display. Needs `draw_game=True`, which is now also a constructor
+  option of the environments. In capture mode the controller script fixes the
+  camera and switches off the HUD, the ghost and the joint flash. Off by
+  default with no cost. See docs/envs.md and `scripts/capture_benchmark.py`.
+  `render()` without a render mode now returns `None` instead of raising.
 * Lower native per-turn overhead (turns/s on DestroyUke, random actions:
   40 -> 67 with `draw_game=False, turnframes=1`, 18 -> 31 with `draw_game=True`,
   19 -> 24 with `turnframes=5`; see docs/hacking.md). Python now wakes on an inotify
