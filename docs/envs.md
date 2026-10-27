@@ -35,6 +35,113 @@ Key | Shape | Bounds | Meaning
 Note that `match_frame` advances by `turnframes + 1` per turn in the native game (for
 example 0, 6, 12 with `turnframes=5`).
 
+## RGB capture (optional)
+
+The game has no pixel API, so ToriLLE can read the frame of the game window from the X server at each turn
+boundary. It is off by default and costs nothing when off. Linux/X11 only, implemented in `torille.capture`
+(no dependency beyond `numpy`; Xlib is called through `ctypes`).
+
+```python
+env = gym.make(
+    "Toribash-DestroyUke-v2", observation_type="dict", capture_size=224, draw_game=True
+)
+obs, _ = env.reset()
+obs["rgb"]  # (224, 224, 3) uint8, the picture of the state in the other keys
+
+env = gym.make("Toribash-DestroyUke-v2", render_mode="rgb_array", draw_game=True)
+env.reset()
+env.render()  # (256, 256, 3) uint8 of the latest state
+
+env = TwoPlayerToriEnv(
+    capture_size=256, draw_game=True
+)  # every agent's observation gets "rgb"
+```
+
+Constructor options of the Gym environments and of `TwoPlayerToriEnv` (also on `ToribashControl`):
+
+* `draw_game=False`: now an explicit option (before it was only `set_draw_game`). **Capture requires `draw_game=True`**;
+  `reset()` raises a `ValueError` otherwise.
+* `capture_size=None`: side of the square frame (16..1024). With `observation_type="dict"` it adds the key `rgb`
+  (`Box(0, 255, (size, size, 3), uint8)`) to the observation space; with the default `box` observation it is an error
+  (use `render_mode`).
+* `render_mode=None | "rgb_array"`: `render()` returns a copy of the latest frame (256 px if `capture_size` is not set,
+  `None` when no render mode is set, as in Gymnasium). The frame is grabbed once per state and shared by the observation and
+  `render()`.
+* `capture_crop="center" | "letterbox"`: `center` (default) cuts the largest centred square out of the window
+  (a 2560x1440 window loses 560 px on each side), so there are no bars; `letterbox` scales the whole window to fit and
+  pads with black, so nothing is cut off and the aspect ratio is kept. Both resize with a box filter.
+* `capture_display=None`: X display of the game, default `$DISPLAY`. The window is found on that display (WM class
+  `toribash_steam`) and its geometry is read from it, nothing is hard-coded to `:0`.
+
+In `TwoPlayerToriEnv` both agents get the same `rgb` (one camera).
+
+How it works and what was measured (2026-10-27, Steam build 20840792, 2560x1440 window on `:0`, GNOME/mutter, NVIDIA):
+
+* **Alignment.** The game waits for the action between turns, so a grab after `get_state()` shows that state. It is not
+  instant: the new picture appears up to about 15 ms after the state arrives after a turn and about 25 ms after a reset. `ToribashControl`
+  waits `capture_settle = 0.03` s (`capture_reset_settle = 0.1` s after a reset) from the arrival of the state, which
+  was never too early in 40 turns (the frame equals a grab taken 0.4 s later) and costs nothing if your code
+  already spent that time. The first frame of a launch is grabbed after the game has drawn something and 0.3 s more.
+  `tests/test_native_capture.py` checks that the frame of a turn equals a second grab at the same boundary
+  (mean absolute difference below 0.2 of 255), that frames change between turns, are not a single colour, and that
+  the first frame of two episodes from the same start pose is the same picture.
+* **Camera.** In capture mode the controller script fixes a side view every frame: free camera, angle 0 (camera on the +x side),
+  looking at `(1, -0.1, 1.0)` from `(5.5, -0.1, 1.8)` (see `remotecontrol_native.lua`). The fighters start on a line along y around
+  x = 1, so they appear side by side. Facts found on the way: the game re-aims its camera while it plays and moves
+  the look-at point whenever `set_camera_pos` is called after another angle, so the camera is put back before every drawn frame, and in
+  free mode the view direction follows `set_camera_angle`, not the look-at point, so the angle has to match the position.
+  The framing is for the default engagement; a larger `engagement_distance` or `random_uke` poses may leave the picture,
+  and the camera does not follow the fighters. Keyboard and mouse camera control are disabled.
+* **What is switched off.** The HUD (`set_option("hud", 0)`), the ghost (a looping preview of the planned moves) and `jointflash`
+  (the glow that fades in on the joints for about 0.7 s after each turn, which made the picture of one state change for a second).
+  `jointflash` is a saved game option; ToriLLE kills the game, which does not write its config, and as a safety belt it puts the
+  original value back into `custom.cfg`/`temp.cfg` in `~/.local/share/Toribash/` at cleanup.
+* **Window and size.** The window is not moved or resized; whatever size it has is captured, cropped and resized to `capture_size`.
+  Cost grows with window pixels, a smaller game window (for example 1280x720 in the game's settings) is cheaper.
+  Changing the game's resolution from the script was not done because it needs a graphics reload and is saved in the user's settings.
+* **Method.** `XShmGetImage` on the game window (shared memory, falls back to `XGetImage`), not on the screen. With the compositing window manager used
+  here, the picture of the window is returned even when the screen is locked (the first test happened to run with the lock screen up and
+  the frames were still the game). This was observed once on this machine; see the limitations below.
+
+Cost per turn, measured with `scripts/capture_benchmark.py` (`Toribash-DestroyUke-v2`, random actions, `turnframes=5`,
+`draw_game=True`, machine mostly idle):
+
+| Stage | Time |
+|---|---|
+| `XShmGetImage` of the 1440x1440 centre square | 12 ms (median) |
+| box resize 1440 to 256 px (numpy, 4 threads) | 7 ms |
+| `grab_frame()` in total | 19 ms |
+| same square with a new `ffmpeg -f x11grab` process per turn | 105 ms |
+| settle wait after the state | 30 ms (turn), 100 ms (reset) |
+
+| Mode | turns/s |
+|---|---|
+| capture off | 10.3 |
+| `rgb` observation (256 px) | 6.2 |
+| `render()` after each step (256 px) | 6.1 |
+
+So capture costs about 65 ms per turn here (19 ms grab, 30 ms settle, the rest is the game: the camera is set before each frame and the Lua
+`spin_ms` pick-up is unchanged). Timings are very sensitive to other load: with other jobs running, the grab alone took 100-250 ms (the
+readback from the GPU is the slow part). A persistent `ffmpeg` pipe reads a frame in about 2 ms, but the frame is whatever the stream has buffered,
+so it cannot be tied to a state; per-turn grabbing was chosen because the game is paused anyway.
+
+![Frames of turns 0, 10 and 30 of an episode](images/rgb_capture_example.png)
+
+Frames 0, 10 and 30 of `Toribash-DestroyUke-v0` (seeded random actions, 256 px centre crop, made by `scripts/capture_examples.py`):
+the fixed side view at the start pose (fighters side by side, the front fighter hides the back one), a fighter thrown to the right, and
+blood and a collapsed fighter after 30 turns.
+
+Limitations (read before collecting data):
+
+* The window must be on the display and mapped. A single-colour frame (black window, minimised game) raises a `RuntimeWarning` once
+  per run of such frames; it is a cheap check, not a guarantee. A window overlapped by another window, a moved window, a screen saver or a
+  locked screen can change what is returned depending on the window manager and driver (with a compositor
+  the window's own pixels were returned in the one lock-screen case seen, with a non-compositing manager other windows would appear in the frame).
+  Do not use the desktop for other things during collection, and look at some frames.
+* Only the one Toribash window is captured, the desktop is read-only for ToriLLE; no other window or the Steam client is touched.
+* The frame is the 3D view only (HUD off). The terminal state of an episode is captured as the game shows it, which may be the end-of-match view.
+* One game instance per display; the capture path needs `DISPLAY` and cannot run without a display.
+
 ## Seeding and determinism
 
 `reset(seed=...)` and `seed(...)` follow the Gymnasium convention and seed `env.np_random`.
@@ -60,7 +167,7 @@ differ). `reset()` is only allowed after an episode ended (terminated or truncat
 The tests are in `tests/test_native_integration.py` (`pytest -m native`).
 
 Additional functions/modifications for all environments:
-* `set_draw_game(draw)`: Enables/Disables rendering of the game according to boolean parameter. Must be called before the first `reset()`.
+* `set_draw_game(draw)`: Enables/Disables rendering of the game according to boolean parameter. Must be called before the first `reset()` (or pass `draw_game=True` to the constructor).
 * `settings` variable: This is a `ToribashSettings` object used to set Toribash's settings on each reset.
 
 `step()` follows the Gymnasium API and returns `(observation, reward, terminated, truncated, info)`:
