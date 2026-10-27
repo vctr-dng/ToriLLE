@@ -140,7 +140,62 @@ Limitations (read before collecting data):
   Do not use the desktop for other things during collection, and look at some frames.
 * Only the one Toribash window is captured, the desktop is read-only for ToriLLE; no other window or the Steam client is touched.
 * The frame is the 3D view only (HUD off). The terminal state of an episode is captured as the game shows it, which may be the end-of-match view.
-* One game instance per display; the capture path needs `DISPLAY` and cannot run without a display.
+* One game instance per display (use `InstancePool` for several); the capture path needs a display (`DISPLAY`, `capture_display` or the `display` of direct mode).
+
+## Parallel instances (opt-in direct launch)
+
+By default the game is started through the Steam client (`steam -applaunch`), which gives exactly one game per
+machine. Linux only, you can instead start the game executable yourself, from your own copy of the game
+directory. This is off by default; the default behaviour is unchanged. The Steam client must be running and logged in
+(the game only uses it for Steamworks IPC; without it the game exits with `SteamAPI_Init failed` and ToriLLE says so).
+
+Options of the Gym environments, `TwoPlayerToriEnv` and `ToribashControl`:
+
+* `launch_mode="steam"` (default) or `"direct"`. Direct mode runs `cd <game_dir> && DISPLAY=<display> SteamAppId=248570
+  SteamGameId=248570 ./toribash_steam` in its own process group; `close()` (and the exit handler, and a failed launch)
+  terminates that group (SIGTERM, SIGKILL after 3 s) and removes `.torille/`, the controller script and the `profile.tbs` entry.
+* `game_dir=None`: directory of the game copy, same as `executable=<game_dir>/toribash_steam`. The launch lock
+  (`.launchlock`), the bridge (`.torille/`) and the "already running" check are per directory, so copies do not wait for each other.
+* `display=None`: direct mode only, the X display to start the game on (default `$DISPLAY`). `capture_display` defaults
+  to it, so each instance on its own display is captured unambiguously.
+
+`torille.pool.InstancePool` makes the copies and one Xvfb (1280x720x24, software GL) per instance:
+
+```python
+from torille.envs import TwoPlayerToriEnv
+from torille.pool import InstancePool
+
+with InstancePool(4) as pool:  # copies under ~/.cache/torille/instances, 4 Xvfb
+    envs = [TwoPlayerToriEnv(draw_game=True, capture_size=128, **kw) for kw in pool]
+    # one worker (thread or process) per env, each calls reset()/step() on its own env
+    for env in envs:
+        env.close()
+# games, Xvfb processes and copies are gone here (also at interpreter exit)
+```
+
+`InstancePool` uses Xvfb by default (`display="xvfb"`), so no game window appears on your desktop; run such scripts with `DISPLAY`
+unset (`env -u DISPLAY python script.py`) to make sure nothing can fall back to it.
+
+`for kw in pool` yields `dict(launch_mode="direct", game_dir=..., display=":NNN", capture_display=":NNN")`; it also works
+with `gym.make("Toribash-DestroyUke-v2", **kw)`. `InstancePool(n, base_dir=None, display="xvfb", source=None)`:
+`display=":0"` puts all instances on an existing display instead (windows appear on that desktop and, with n > 1, capture
+cannot tell the windows apart, so it warns). The game must not be running in the copies when the pool closes; if it is, the
+pool terminates processes started from its own copies. `pool.disk_bytes` is the disk the copies use, `pool.copy_method` is
+`"copy"` or `"reflink"`. `remove_stale_pools()` deletes pool directories left behind by a Python process that was killed
+(only directories with a pool marker whose owner PID is gone); it is never called automatically.
+
+Notes:
+
+* One copy is about 0.6 GB (597 MB of files in the install tested). The pool refuses to start if free disk space is below 3 times the
+  size of all copies. Copies are plain copies (reflinks, if the filesystem supports them, are tried first and are safe because
+  they are copy-on-write). Hardlinks are not used: it was not shown that the game never rewrites those files in place.
+* The game's user config (`~/.local/share/Toribash/`) is shared by all instances. In capture mode the saved `jointflash`
+  option is changed by the controller script; direct instances take a reference-counted snapshot (state in
+  `~/.cache/torille/options.json`), the first one saves the original and the last one restores it. A crashed run is repaired by the next one.
+  A Steam-launched game running at the same time uses the old snapshot and is not part of that counting.
+* Cleanup runs on `close()`, from `atexit` and on a failed launch. It cannot run if Python is killed with SIGKILL: games and Xvfb
+  processes are then left running (their PIDs are not recorded anywhere; stop them yourself).
+* Measured speed, requirements and what was not tested: see [parallelism.md](parallelism.md).
 
 ## Seeding and determinism
 

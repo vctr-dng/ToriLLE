@@ -104,3 +104,64 @@ If the direct-launch route is rejected, N=1, with these consequences:
 - M9 self-play is limited to short runs; no population-based training or large league.
 - Each experiment competes with every other agent for the one game, so schedule the heavy runs.
 - A second Steam account with a Toribash licence would be the only other route to N>1.
+
+## Follow-up: direct launch and instance pool in the library
+
+Implemented after the spike, opt-in (`launch_mode="direct"`); the default Steam launch is unchanged. API and details are in
+[envs.md](envs.md#parallel-instances-opt-in-direct-launch). Summary:
+
+```python
+from torille.envs import TwoPlayerToriEnv
+from torille.pool import InstancePool
+
+# Steam client running and logged in; display="xvfb" is the default: one Xvfb per instance, nothing on your desktop.
+with InstancePool(4) as pool:
+    envs = [TwoPlayerToriEnv(draw_game=True, capture_size=128, **kw) for kw in pool]
+    ...  # one thread/process per env: env.reset(), env.step(...), env.close()
+```
+
+* **Requirements.** Linux, the Steam client running and logged in (IPC only; without it the game exits and ToriLLE raises a
+  `RuntimeError` naming Steam), the game installed, `Xvfb` installed, free disk of at least 3x the copies.
+* **Run everything on Xvfb.** `InstancePool(n)` defaults to `display="xvfb"`: each instance gets its own 1280x720x24 Xvfb on a free display
+  number (searched from `:100`), so windows never appear on the desktop and the WM-class window lookup of the capture is unambiguous.
+  Passing `display=":0"` is possible but puts every game window on that display; do not use it for unattended runs. To be sure, run with
+  `DISPLAY` unset: `env -u DISPLAY uv run python your_script.py` (direct mode needs no `$DISPLAY`; it sets `DISPLAY` for the game from
+  `display=`). The native test (`tests/test_native_parallel.py`) and `scripts/pool_benchmark.py` refuse `:0` and `$DISPLAY`.
+* **Disk.** 0.65 GB per instance (measured: 640 MB of game files, 0.65 / 1.29 / 2.58 GB for N = 1 / 2 / 4, plain copies; this filesystem
+  is ext4 so reflinks are not available). Copies are made with `shutil` (about 1.5 s per instance with a warm cache), removed on exit.
+  Hardlinks are not used because it was not shown that the game never rewrites those files in place.
+* **Lock.** Direct instances use `.launchlock` and the "already running" check of their own directory and never take
+  `/tmp/toribash-game.lock`.
+
+### Throughput on Xvfb with capture
+
+`scripts/pool_benchmark.py 1 2 4 --seconds 25` (`TwoPlayerToriEnv`, random actions, `draw_game=True`, `capture_size=128`, `turnframes=5`,
+`matchframes=1000`, Xvfb with llvmpipe, one worker process per instance, all measuring the same window), 2026-10-27, i9-12900H:
+
+| Instances | per-instance turns/s | aggregate turns/s | load average before -> after |
+|---|---|---|---|
+| 1 | 3.0 | 3.0 | 1.9 -> 2.1 |
+| 2 | 1.6 / 1.7 | 3.3 | 2.1 -> 6.9 |
+| 4 | 1.07 (all four) | 4.3 | 6.9 -> 21 |
+
+These numbers are **not** a measure of what the library can do. The machine was shared with other jobs while I measured and the load
+average was 2 at the start and up to 21 during the N=4 cell (the games' software rendering uses many threads each). Further cells, all
+also under load 8-20: with `LP_NUM_THREADS=2` (capture) N=1/2/4 gave 2.0 / 2.6 / 4.5 aggregate, and without capture N=1/4 gave 2.6 / 4.5
+aggregate, so on that busy machine neither limiting llvmpipe threads nor switching capture off changed the picture, which indicates
+CPU contention. The quiet-machine spike (no capture, no pool) reached 10 turns/s per instance at N=1 and 39 turns/s aggregate at N=4;
+that run should be repeated with capture and the pool on an idle machine. I did not do so, because the user asked me to stop. Do not quote the table
+above as the scaling of the method.
+
+### Not tested
+
+* The Steam-launched (default) path on the final code: its native tests were not re-run after the last change (the games opened on the user's
+  desktop and the run was stopped). It is covered by unit tests with fakes (`tests/test_platform_launcher.py`, `tests/test_cleanup.py`).
+  Earlier on the same code, `pytest -m native` (Steam mode) passed `test_native_capture.py` and `test_native_integration.py`
+  (14 tests) in one run; an earlier run had failed `test_bridge_does_not_desync_over_hundreds_of_turns[False-1]` (one turn off under heavy
+  load) which passed when rerun alone. That run was interrupted before `test_native_parallel.py` and `test_native_two_player.py`;
+  `test_native_parallel.py` was then run alone, on Xvfb with `DISPLAY` unset, and passed (2 instances, capture, 13 s).
+* N > 4 with the pool, `draw_game=False` with the pool, hours-long runs, memory per instance, `display=":0"` with the pool, a Steam client
+  that restarts during a run, Python killed with SIGKILL (games and Xvfb are left behind; the pool cannot clean up), concurrent
+  Steam-mode and direct-mode capture sharing `jointflash` restoration, reflink copies (no reflink filesystem here).
+* Whether starting the game outside the Steam launcher is acceptable under the Toribash / Steam terms: **not reviewed**. This uses the
+  user's own licence and Steam client on one machine; the user should decide.
