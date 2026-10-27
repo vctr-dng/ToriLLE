@@ -41,3 +41,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not native'"
+markers = [
+    "native: plays real games in native Toribash (needs Steam, Toribash and a display)",
+]
