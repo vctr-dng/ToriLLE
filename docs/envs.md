@@ -173,6 +173,9 @@ with InstancePool(4) as pool:  # copies under ~/.cache/torille/instances, 4 Xvfb
 # games, Xvfb processes and copies are gone here (also at interpreter exit)
 ```
 
+`InstancePool` uses Xvfb by default (`display="xvfb"`), so no game window appears on your desktop; run such scripts with `DISPLAY`
+unset (`env -u DISPLAY python script.py`) to make sure nothing can fall back to it.
+
 `for kw in pool` yields `dict(launch_mode="direct", game_dir=..., display=":NNN", capture_display=":NNN")`; it also works
 with `gym.make("Toribash-DestroyUke-v2", **kw)`. `InstancePool(n, base_dir=None, display="xvfb", source=None)`:
 `display=":0"` puts all instances on an existing display instead (windows appear on that desktop and, with n > 1, capture

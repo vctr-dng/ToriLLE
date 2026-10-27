@@ -155,10 +155,11 @@ above as the scaling of the method.
 ### Not tested
 
 * The Steam-launched (default) path on the final code: its native tests were not re-run after the last change (the games opened on the user's
-  desktop and the run was stopped). It is covered by unit tests with fakes (`tests/test_platform_launcher.py`, `tests/test_cleanup.py`), and
-  the earlier native run on this branch passed 13 of 14 tests of the first session, the one failure being the timing-based
-  `test_bridge_does_not_desync_over_hundreds_of_turns[False-1]` (one turn off under heavy load, passed alone). The tests of
-  `test_native_two_player.py` and the native test of a direct copy next to a Steam-launched game were not run.
+  desktop and the run was stopped). It is covered by unit tests with fakes (`tests/test_platform_launcher.py`, `tests/test_cleanup.py`).
+  Earlier on the same code, `pytest -m native` (Steam mode) passed `test_native_capture.py` and `test_native_integration.py`
+  (14 tests) in one run; an earlier run had failed `test_bridge_does_not_desync_over_hundreds_of_turns[False-1]` (one turn off under heavy
+  load) which passed when rerun alone. That run was interrupted before `test_native_parallel.py` and `test_native_two_player.py`;
+  `test_native_parallel.py` was then run alone, on Xvfb with `DISPLAY` unset, and passed (2 instances, capture, 13 s).
 * N > 4 with the pool, `draw_game=False` with the pool, hours-long runs, memory per instance, `display=":0"` with the pool, a Steam client
   that restarts during a run, Python killed with SIGKILL (games and Xvfb are left behind; the pool cannot clean up), concurrent
   Steam-mode and direct-mode capture sharing `jointflash` restoration, reflink copies (no reflink filesystem here).
