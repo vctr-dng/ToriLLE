@@ -1,5 +1,12 @@
 ### Unreleased
 
+* New `observation_type="dict"` flag for all environments: a `Dict` observation
+  with positions, velocities, joint states, grips, `match_frame` and
+  `frames_next_turn` for both players (see docs/envs.md). The default
+  observation is unchanged.
+* `reset(seed=...)` and `seed()` seed `np_random`, which now drives the random
+  opponent of `Toribash-DestroyUke-v2`. Documented (and tested) that the game
+  itself is deterministic: same actions give identical trajectories.
 * Require Python 3.14, manage the project with uv and migrate to Gymnasium.
 * Launch native Toribash on Linux through Steam, controlled via a file bridge
   (`.torille/` in the game directory) instead of LuaSocket.
