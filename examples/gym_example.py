@@ -36,13 +36,14 @@ number_of_episodes = 0
 turn_number = 0
 
 # Initial reset (You _have_ to start by calling `reset` first!)
-first_obs = env.reset()
+first_obs, _ = env.reset()
 while number_of_episodes < NUM_EPISODES:
     # Come up with some actions. Here we just take random actions
     actions = env.action_space.sample()
 
     # Get the current state and info if the episode was terminal
-    state, reward, terminal, _ = env.step(actions)
+    state, reward, terminated, truncated, _ = env.step(actions)
+    terminal = terminated or truncated
 
     # If state was terminal (game has ended), restart the episode
     # and get the new state.
@@ -50,7 +51,7 @@ while number_of_episodes < NUM_EPISODES:
     # playing for 'matchframes' number of frames
     if terminal:
         # Begin a new game and receive the initial state
-        state = env.reset()
+        state, _ = env.reset()
         # Keep count of played episodes
         number_of_episodes += 1
         turn_number = 0

@@ -9,6 +9,17 @@ from torille.envs.gym_env import ToriEnv
 from torille.torille import ToribashControl
 
 
+class _TestEnv(ToriEnv):
+    def _preprocess_observation(self, state):
+        return state
+
+    def _preprocess_action(self, action):
+        return action
+
+    def _reward_function(self, old_state, new_state):
+        return 1.0
+
+
 class PlatformExecutableTests(unittest.TestCase):
     def test_linux_uses_xdg_steam_install(self):
         with patch.dict(
@@ -65,6 +76,7 @@ class NativeLauncherTests(unittest.TestCase):
 
             popen.assert_called_once_with(
                 (str(executable),),
+                cwd=str(executable.parent),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -83,3 +95,16 @@ class GymExecutableTests(unittest.TestCase):
         self.assertEqual(
             controller.call_args.kwargs["settings"].get("matchframes"), 100
         )
+
+    def test_environment_uses_gymnasium_reset_and_step_results(self):
+        state = MagicMock()
+        with patch("torille.envs.gym_env.torille.ToribashControl") as controller:
+            controller.return_value.get_state.return_value = (state, False)
+            environment = _TestEnv(executable="/opt/toribash_steam")
+
+            observation, info = environment.reset(seed=3)
+            result = environment.step([[1] * 22, [1] * 22])
+
+        self.assertIs(observation, state)
+        self.assertEqual(info, {})
+        self.assertEqual(result, (state, 1.0, False, False, {}))

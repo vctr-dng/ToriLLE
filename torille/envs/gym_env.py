@@ -123,9 +123,10 @@ class ToriEnv(gym.Env):
         self.old_state = state
         # "obs" here is in the Gym format. "state" is ToribashState
         obs = self._preprocess_observation(state)
-        return obs, reward, terminal, None
+        return obs, reward, terminal, False, {}
 
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
         obs = None
         if self.just_created:
             # Initialize game here to make it pickable before init
@@ -143,7 +144,7 @@ class ToriEnv(gym.Env):
             # Get the state and return it
             obs = self._preprocess_observation(state)
             self.old_state = state
-        return obs
+        return obs, {}
 
     def set_draw_game(self, visibility):
         """

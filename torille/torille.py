@@ -361,6 +361,7 @@ class ToribashControl:
                 _ = utils.set_file_readonly(self.toribash_stderr_file)
                 self.process = subprocess.Popen(
                     (self.executable_path,),
+                    cwd=os.path.dirname(self.executable_path),
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
