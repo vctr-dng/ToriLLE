@@ -82,7 +82,9 @@ class NativeFileBridge:
             except FileNotFoundError:
                 time.sleep(0.01)
                 continue
-            if state:
+            # The Lua side cannot rename files, so it truncates and rewrites
+            # the state in place. Only a newline-terminated message is complete.
+            if state.endswith("\n"):
                 self.state_path.unlink(missing_ok=True)
                 return state.encode()
             time.sleep(0.01)
