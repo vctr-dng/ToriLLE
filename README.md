@@ -59,11 +59,12 @@ env = gym.make("Toribash-DestroyUke-v0")
 # Show gameplay
 env.set_draw_game(True)
 
-initial_state = env.reset()
-t = False
+obs, info = env.reset()
+done = False
 # Random agent
-while not t:
-    s, r, t, _ = env.step(env.action_space.sample())
+while not done:
+    obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
+    done = terminated or truncated
 env.close()
 ```
 
