@@ -69,11 +69,13 @@ class SoloToriEnv(ToriEnv):
             [torille.constants.NUM_JOINT_STATES] * torille.constants.NUM_CONTROLLABLES
         )
         # Only one player
-        self.observation_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            dtype=np.float32,
-            shape=(torille.constants.NUM_LIMBS * 3,),
+        self._set_observation_space(
+            spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                dtype=np.float32,
+                shape=(torille.constants.NUM_LIMBS * 3,),
+            )
         )
 
     def _preprocess_observation(self, state):

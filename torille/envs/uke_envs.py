@@ -21,8 +21,6 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 
-import random as r
-
 import numpy as np
 from gymnasium import spaces
 
@@ -67,11 +65,13 @@ class UkeToriEnv(ToriEnv):
             [torille.constants.NUM_JOINT_STATES] * torille.constants.NUM_CONTROLLABLES
         )
         # observation space for both players
-        self.observation_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            dtype=np.float32,
-            shape=(torille.constants.NUM_LIMBS * 3 * 2,),
+        self._set_observation_space(
+            spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                dtype=np.float32,
+                shape=(torille.constants.NUM_LIMBS * 3 * 2,),
+            )
         )
 
     def _preprocess_observation(self, state):
@@ -102,7 +102,9 @@ class UkeToriEnv(ToriEnv):
             # Add random actions for uke
             action = [
                 action,
-                [r.randint(1, 4) for i in range(torille.constants.NUM_CONTROLLABLES)],
+                self.np_random.integers(
+                    1, 5, size=torille.constants.NUM_CONTROLLABLES
+                ).tolist(),
             ]
         return action
 

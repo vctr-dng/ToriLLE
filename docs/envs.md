@@ -6,8 +6,58 @@ as a (almost) drop-in replacements to e.g. Atari environments.
 Register these environments by importing `torille.envs`.
 
 Limitations:
-* `seed()` function is not implemented (can't change seed of Toribash)
 * `render()` function is not implemented (only one type of state available)
+
+## Observation type
+
+By default every environment returns its own flat `Box` observation, described per
+environment below. Pass `observation_type="dict"` to get a structured `Dict` observation
+instead; the action space and rewards do not change. Every environment id accepts the flag:
+
+```python
+env = gym.make("Toribash-DestroyUke-v2", observation_type="dict")
+```
+
+The `Dict` observation is the same for all environments and describes both players
+(index 0 is player 1, index 1 is player 2), all float32. Defined in
+`torille.envs.observations`:
+
+Key | Shape | Bounds | Meaning
+--- | ----- | ------ | -------
+`positions` | (2, 21, 3) | +-inf | Limb positions of both players, centred on player 1's groin and rotated by its groin rotation (same frame as the flat Uke/Duo observation)
+`groin_height` | (2,) | +-inf | Absolute `z` of each groin (centred positions lose the height above the floor)
+`velocities` | (2, 21, 3) | +-inf | Limb velocities, world frame
+`joint_states` | (2, 20) | [0, 4] | Joint states: 1 extend, 2 contract, 3 hold, 4 relax
+`grips` | (2, 2) | [0, 1] | Left and right hand grip
+`match_frame` | (1,) | [0, `matchframes`] | Frames played so far
+`frames_next_turn` | (1,) | [0, `matchframes`] | Frames the next turn lasts
+
+Note that `match_frame` advances by `turnframes + 1` per turn in the native game (for
+example 0, 6, 12 with `turnframes=5`).
+
+## Seeding and determinism
+
+`reset(seed=...)` and `seed(...)` follow the Gymnasium convention and seed `env.np_random`.
+That generator is the only source of randomness in ToriLLE: it draws the random opponent's
+actions in `Toribash-DestroyUke-v2`. (Before, that opponent used Python's global `random`,
+which could not be seeded through the environment.) Seed on the first `reset()`.
+
+Toribash itself has no seed. What was measured (native game, Toribash build 20840792,
+`Toribash-DestroyUke-v0`, random actions fixed beforehand, `matchframes` 200, 40 turns):
+
+* The initial state after `reset()` is identical every time (bitwise). The classic mod has
+  no random starting pose.
+* Replaying the same action sequence gave bitwise identical observations and rewards,
+  across episodes in one process, across separate processes, and with `draw_game` on or off.
+  Measured divergence: 0.0.
+* Hence an episode is a deterministic function of the settings and the actions, and with
+  `np_random` seeded the whole of `Toribash-DestroyUke-v2` is reproducible too.
+
+Limits of this claim: it covers only the settings and mod tested (classic, default
+physics, two or three action sequences), one machine and one game build. It does not cover
+other mods, replays, or a different game version or hardware (floating point results could
+differ). `reset()` is only allowed after an episode ended (terminated or truncated).
+The tests are in `tests/test_native_integration.py` (`pytest -m native`).
 
 Additional functions/modifications for all environments:
 * `set_draw_game(draw)`: Enables/Disables rendering of the game according to boolean parameter. Must be called before the first `reset()`.
