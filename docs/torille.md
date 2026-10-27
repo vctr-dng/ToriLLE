@@ -14,6 +14,7 @@ Parameters:
 * draw_game: Boolean specifying if game should be human-"enjoyable", i.e. run at convenient frame-rate and display characters
 * executable: Optional path to a native Toribash executable. On Linux the default is Steam's `toribash_steam` under `$XDG_DATA_HOME/Steam/steamapps/common/Toribash/` (or `~/.local/share` when `XDG_DATA_HOME` is unset). On Windows the default is the packaged `toribash.exe`.
 * port: Integer which specifies port where Toribash Lua attempts to connect to.
+* install_native_controller: On Linux, install ToriLLE's file-based controller script for this instance. This requires write access to the Steam game directory and restores `profile.tbs` during `close()`.
 
 #### `init()`
 Launches Toribash instance and begins to control it. Uses `FileLock` to prevent multiple parallel instances from

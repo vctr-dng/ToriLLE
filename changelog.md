@@ -1,3 +1,22 @@
+### Unreleased
+
+* Require Python 3.14, manage the project with uv and migrate to Gymnasium.
+* Launch native Toribash on Linux through Steam, controlled via a file bridge
+  (`.torille/` in the game directory) instead of LuaSocket.
+* Gym environments return `terminated`/`truncated` separately and report
+  `winner`, `injuries` and `match_frame` in `info`.
+* Native state messages are only accepted when complete, and a crashed game
+  is detected immediately instead of after the connection timeout.
+* Native controller script and bridge files are removed on `close()`.
+* Settings validation reports the correct setting name and accepts numpy numbers.
+* `torille.__version__` is read from the package metadata.
+* `draw_game=False` now runs the native game without the fixed frame rate
+  (about 2x faster than real time). The window is still shown.
+* Fixed the native controller stalling after a reset when it read a consumed,
+  empty action file as an action.
+* Tests run with pytest; ruff and pytest are in the uv dev group. Tests that
+  play real games are opt-in with `pytest -m native`.
+
 ### 31.8.2023 v1.0.3
 
 * Update code to work with new Gym and numpy.

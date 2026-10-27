@@ -37,8 +37,6 @@ NUM_JOINTS = 20
 # Add hand_grips
 NUM_CONTROLLABLES = NUM_JOINTS + 2
 NUM_JOINT_STATES = 4
-# Number of setting variables
-NUM_SETTINGS = 19
 
 # Bodypart x,y,z + Bodypart x,y,z velocities +
 # groin rotation + Joint states + hand grips + injuries + selected player
@@ -49,6 +47,9 @@ STATE_LENGTH = (NUM_LIMBS * 3 * 2) * 2 + 16 * 2 + NUM_JOINTS * 2 + 4 + 2 + 1 + 3
 PACKAGE_TORIBASH_EXE = os.path.join(
     os.path.dirname(os.path.realpath(__file__)), "toribash", "toribash.exe"
 )
+
+# Steam application ID for the native Toribash client.
+STEAM_APP_ID = "248570"
 
 
 def get_platform_executable(platform=None):

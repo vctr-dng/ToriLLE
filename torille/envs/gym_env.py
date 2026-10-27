@@ -39,10 +39,12 @@ class ToriEnv(gym.Env):
         _reward_function
     """
 
-    def __init__(self, executable=None, **kwargs):
+    def __init__(self, executable=None, install_native_controller=True, **kwargs):
         self.settings = torille.ToribashSettings(**kwargs)
         self.game = torille.ToribashControl(
-            settings=self.settings, executable=executable
+            settings=self.settings,
+            executable=executable,
+            install_native_controller=install_native_controller,
         )
 
         # Previous state (ToribashState)
@@ -123,9 +125,19 @@ class ToriEnv(gym.Env):
         self.old_state = state
         # "obs" here is in the Gym format. "state" is ToribashState
         obs = self._preprocess_observation(state)
-        return obs, reward, terminal, None
+        # Reaching the match length is a time limit (truncation). Any other
+        # end of the game is a natural ending of the task (termination).
+        truncated = terminal and state.match_frame >= state.match_length
+        terminated = terminal and not truncated
+        info = {
+            "winner": state.winner,
+            "injuries": state.injuries.copy(),
+            "match_frame": state.match_frame,
+        }
+        return obs, reward, terminated, truncated, info
 
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
         obs = None
         if self.just_created:
             # Initialize game here to make it pickable before init
@@ -143,7 +155,7 @@ class ToriEnv(gym.Env):
             # Get the state and return it
             obs = self._preprocess_observation(state)
             self.old_state = state
-        return obs
+        return obs, {}
 
     def set_draw_game(self, visibility):
         """

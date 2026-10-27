@@ -70,7 +70,10 @@ class SoloToriEnv(ToriEnv):
         )
         # Only one player
         self.observation_space = spaces.Box(
-            low=-30, high=30, dtype=np.float32, shape=(torille.constants.NUM_LIMBS * 3,)
+            low=-np.inf,
+            high=np.inf,
+            dtype=np.float32,
+            shape=(torille.constants.NUM_LIMBS * 3,),
         )
 
     def _preprocess_observation(self, state):
@@ -81,7 +84,7 @@ class SoloToriEnv(ToriEnv):
         # so that agent knows how much above the ground it is
         obs[4, 2] = state.limb_positions[0, 4, 2]
         obs = obs.ravel()
-        return obs
+        return obs.astype(np.float32)
 
     def _preprocess_action(self, action):
         # Add +1 to limb actions (to make [0,3] -> [1,4])
