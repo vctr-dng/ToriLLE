@@ -4,6 +4,7 @@ from .duo_envs import DuoToriEnv as DuoToriEnv
 from .duo_envs import reward_cuddles, reward_injury_player1_pov, reward_win_player1_pov
 from .solo_envs import SoloToriEnv as SoloToriEnv
 from .solo_envs import reward_run_away, reward_self_destruct, reward_stay_safe
+from .two_player import TwoPlayerToriEnv as TwoPlayerToriEnv
 from .uke_envs import UkeToriEnv as UkeToriEnv
 from .uke_envs import reward_destroy_uke, reward_destroy_uke_with_penalty
 
