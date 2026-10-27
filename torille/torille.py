@@ -19,9 +19,12 @@
 #  MA 02110-1301, USA.
 #
 import atexit
+import ctypes
+import ctypes.util
 import numbers
 import os
 import pprint
+import select
 import shutil
 import socket
 import subprocess
@@ -39,11 +42,69 @@ from filelock import FileLock
 
 from . import constants, utils
 
+_IN_CLOSE_WRITE = 0x00000008
+_IN_MOVED_TO = 0x00000080
+_IN_CREATE = 0x00000100
+_IN_NONBLOCK = 0o4000
+_IN_CLOEXEC = 0o2000000
+
+
+# Longest Python blocks on inotify before checking that the game is alive.
+_INOTIFY_LIVENESS_INTERVAL = 0.05
+
+
+class _StateWatcher:
+    """Wake up when a file in a directory is written, using Linux inotify.
+
+    Dependency-free: calls libc through ctypes. Raises OSError if inotify is
+    not available, and the bridge then falls back to polling.
+    """
+
+    def __init__(self, directory):
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or None, use_errno=True)
+        self._fd = libc.inotify_init1(_IN_NONBLOCK | _IN_CLOEXEC)
+        if self._fd < 0:
+            raise OSError(ctypes.get_errno(), "inotify_init1 failed")
+        mask = _IN_CLOSE_WRITE | _IN_MOVED_TO | _IN_CREATE
+        if libc.inotify_add_watch(self._fd, os.fsencode(directory), mask) < 0:
+            error = ctypes.get_errno()
+            os.close(self._fd)
+            raise OSError(error, "inotify_add_watch failed")
+
+    def wait(self, timeout):
+        """Block until some event arrives or the timeout passes."""
+        if select.select([self._fd], [], [], timeout)[0]:
+            try:
+                while os.read(self._fd, 65536):
+                    pass
+            except BlockingIOError:
+                pass
+
+    def close(self):
+        os.close(self._fd)
+
 
 class NativeFileBridge:
-    """Exchange controller messages with the native Lua script via game-local files."""
+    """Exchange controller messages with the native Lua script via game-local files.
 
-    def __init__(self, game_directory):
+    Parameters:
+        game_directory: Toribash directory, the bridge lives in `.torille/`.
+        poll_interval: Seconds between checks for a state when polling
+                       (use_inotify=False, or inotify is unavailable).
+        use_inotify: Wake up on the state write instead of sleeping between
+                     polls (Linux only, falls back to polling if unavailable).
+        spin_ms: Sent to the Lua script: how long it keeps checking for
+                 the next action inside the game's freeze hook before falling
+                 back to its per-frame poll. 0 disables.
+    """
+
+    def __init__(
+        self, game_directory, poll_interval=0.001, use_inotify=True, spin_ms=5.0
+    ):
+        self.poll_interval = poll_interval
+        self.use_inotify = use_inotify
+        self._watcher = None
+        self.spin_ms = spin_ms
         self.directory = Path(game_directory) / ".torille"
         self.state_path = self.directory / "state"
         self.action_path = self.directory / "action"
@@ -61,6 +122,9 @@ class NativeFileBridge:
             path.unlink(missing_ok=True)
 
     def cleanup(self):
+        if self._watcher is not None:
+            self._watcher.close()
+            self._watcher = None
         shutil.rmtree(self.directory, ignore_errors=True)
 
     def _write(self, path, content):
@@ -71,7 +135,7 @@ class NativeFileBridge:
     def write_settings(self, draw_game, settings):
         self._write(
             self.settings_path,
-            f"{int(draw_game)}\n{','.join(map(str, settings))}\n",
+            f"{int(draw_game)}\n{','.join(map(str, settings))}\n{self.spin_ms}\n",
         )
 
     def send_actions(self, actions):
@@ -80,15 +144,37 @@ class NativeFileBridge:
     def request_reset(self):
         self._write(self.reset_path, "reset\n")
 
+    def _get_watcher(self):
+        if not self.use_inotify:
+            return None
+        if self._watcher is None:
+            try:
+                self._watcher = _StateWatcher(self.directory)
+            except OSError, AttributeError:
+                self.use_inotify = False
+        return self._watcher
+
+    def _wait(self, remaining):
+        """Wait until the state file may have changed (or the interval passes)."""
+        watcher = self._get_watcher()
+        if watcher is not None:
+            # Events are queued from the moment the watch exists, so a write
+            # between our last read and this call is not lost; the timeout
+            # only bounds how long we go without checking the game is alive.
+            watcher.wait(min(remaining, _INOTIFY_LIVENESS_INTERVAL))
+        else:
+            time.sleep(self.poll_interval)
+
     def receive_state(self, timeout, is_alive=None):
         deadline = time.monotonic() + timeout
+        self._get_watcher()
         while time.monotonic() < deadline:
             try:
                 state = self.state_path.read_text(encoding="utf-8")
             except FileNotFoundError:
                 if is_alive is not None and not is_alive():
                     raise RuntimeError("Native Toribash exited unexpectedly")
-                time.sleep(0.01)
+                self._wait(deadline - time.monotonic())
                 continue
             # The Lua side cannot rename files, so it truncates and rewrites
             # the state in place. Only a newline-terminated message is complete.
@@ -97,7 +183,7 @@ class NativeFileBridge:
                 return state.encode()
             if is_alive is not None and not is_alive():
                 raise RuntimeError("Native Toribash exited unexpectedly")
-            time.sleep(0.01)
+            self._wait(deadline - time.monotonic())
         raise TimeoutError("Timed out waiting for state from native Toribash")
 
 
@@ -378,6 +464,9 @@ class ToribashControl:
         executable=None,
         port=constants.PORT,
         install_native_controller=True,
+        poll_interval=0.001,
+        use_inotify=True,
+        spin_ms=5.0,
     ):
         """
         Parameters:
@@ -392,6 +481,13 @@ class ToribashControl:
                           (in {toribash dir}/data/script/remotecontrol.lua )
             install_native_controller: Install the native Linux controller script
                                        for the lifetime of this instance.
+            poll_interval: Native bridge only. Seconds between checks for the
+                           game's state when polling (see use_inotify).
+            use_inotify: Native bridge only. Wake up when the game writes its
+                         state instead of sleeping `poll_interval` between checks.
+            spin_ms: Native bridge only. Milliseconds the game script keeps
+                     checking for the next action inside its freeze hook
+                     before falling back to its per-frame poll. 0 disables.
         """
         self.process = None
         self.connection = None
@@ -441,6 +537,9 @@ class ToribashControl:
         # If False, make_actions should be next call.
         # If True, get_state should be next call.
         self.requires_get_state = False
+        self.poll_interval = poll_interval
+        self.use_inotify = use_inotify
+        self.spin_ms = spin_ms
 
     def _check_if_initialized(self):
         if self.process is None:
@@ -544,7 +643,10 @@ class ToribashControl:
                 # TODO this will cause headache when trying to remove torille
                 _ = utils.set_file_readonly(self.toribash_stderr_file)
                 self.native_bridge = NativeFileBridge(
-                    os.path.dirname(self.executable_path)
+                    os.path.dirname(self.executable_path),
+                    self.poll_interval,
+                    self.use_inotify,
+                    self.spin_ms,
                 )
                 # Leave the game directory as we found it, however we exit
                 atexit.register(_cleanup_at_exit, weakref.ref(self))

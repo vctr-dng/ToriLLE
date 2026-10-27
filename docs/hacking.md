@@ -42,6 +42,73 @@ File | Written by | Content
 Each reader consumes its file after reading it. Lua cannot rename files, so it rewrites `state`
 in place. Python therefore only accepts a state once it ends in a newline.
 
+## Per-turn overhead
+
+Measured on 2026-10-27 with `scripts/turn_throughput.py` (`Toribash-DestroyUke-v0`, random actions,
+`matchframes=1000`, 30 s per cell, `:0`), run interleaved before/after, twice each. The machine was shared with
+other jobs (load 1.4-2.4), so treat differences under ~10% as noise.
+
+| `draw_game` | `turnframes` | before (turns/s) | after (turns/s) | speedup |
+|---|---|---|---|---|
+| False | 1 | 40.4 / 39.3 | 65.8 / 68.0 | 1.68x |
+| False | 5 | 18.3 / 20.3 | 23.7 / 24.6 | 1.25x |
+| True | 1 | 17.8 / 17.6 | 30.7 / 30.9 | 1.74x |
+| True | 5 | 8.6 / 8.5 | 10.3 / 10.3 | 1.20x |
+
+"Before" is the old bridge (`use_inotify=False, poll_interval=0.01, spin_ms=0`, selectable with
+`--legacy`). Note that one turn advances `turnframes + 1` game frames (`match_frame` goes 2, 4, 6 for
+`turnframes=1`), so physics frames per second is `turns/s * (turnframes + 1)`. This quirk is older than this work and is
+unchanged.
+
+### Profile of a turn (before, `draw_game=False`, `turnframes=1`, about 21.5 ms)
+
+Timestamps from Python plus inotify events on `.torille/` (`scripts/profile_turn.py`):
+
+| Step | Time |
+|---|---|
+| Python writes the action (tmp file + rename) | 0.03 ms |
+| Lua notices the action: it only looks in `pre_draw`, once per game frame (about 7.5 ms apart with `draw_game=False`, about 26 ms with `True`) | 2-6 ms |
+| Lua applies the action, steps, game frame, `enter_freeze`, state written | about 15 ms |
+| Python notices the state (10 ms sleep polling) | 4-5 ms (up to 10) |
+| Python reads, deletes, parses the state | 0.06 ms |
+
+So the fixed cost is not file operations (about 0.03 ms each) but two latencies: Python's sleep and the Lua
+script only looking for actions once per frame. The remaining time is the game itself.
+
+### Changes
+
+* `ToribashControl(poll_interval=0.001, use_inotify=True, spin_ms=5.0)`, passed to `NativeFileBridge`.
+  * `use_inotify`: block on a Linux inotify watch of `.torille/` (through `ctypes`, no dependency) instead of
+    sleeping. Falls back to polling every `poll_interval` if inotify is unavailable. The watch exists before the first
+    read, so a write between a read and the wait is not lost; the wait has a 50 ms timeout only to check that
+    the game is alive.
+  * `spin_ms`: written as a third line of the `settings` file. After writing the state in the `enter_freeze` hook,
+    Lua keeps checking for the action for up to `spin_ms` milliseconds and steps immediately, instead of waiting for
+    the next `pre_draw`. If Python answers later, the old per-frame path takes over, with identical results.
+    The spin is not used in the `new_game` hook, because stepping from there advances a different number of frames.
+* Not reachable from the Gym envs yet (the env layer is untouched); set attributes on
+  `env.unwrapped.game` before the first `reset()`. The defaults are the fast ones.
+
+### What was tried
+
+Interleaved A/B in one game launch (`scripts/ab_turns.py`, 8 rounds of 100 turns, ms per turn, median):
+
+| Variant | `draw_game=False` | `draw_game=True` |
+|---|---|---|
+| sleep 10 ms (old) | 25.1 | 56.0 |
+| sleep 2 ms | 21.2 | 48.3 |
+| sleep 0.5 ms | 19.9 | 48.2 |
+| inotify | 20.8 | 47.9 |
+| inotify + Lua spin (`turnframes=1`) | 13.5-14 | 32.1 |
+
+* A shorter poll interval alone recovers most of the Python-side loss; inotify is no faster than 0.5 ms polling
+  (the wake-up cost is similar). It is kept because it burns no CPU and has no interval to tune.
+* The Lua spin is the larger win (saves most of the half-frame average pickup latency). Any window from 1 ms
+  to 40 ms measured the same; 5 ms is the default so that a slow Python still falls back cheaply.
+* Fewer file operations: not pursued. The write, read and delete cost about 0.03 ms each, against 20+ ms per turn.
+* `draw_game=True` stays frame-limited (`fixedframerate=1`, about 26 ms per frame), and larger `turnframes`
+  shrink the relative gain because per-frame time dominates.
+
 ## Tests
 
 `uv run pytest` runs the unit tests. `uv run pytest -m native` also plays real games, which

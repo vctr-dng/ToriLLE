@@ -21,6 +21,9 @@ local waiting_for_action = false
 local waiting_for_reset = false
 local replay_file = "None"
 local game_mod = "classic"
+-- Milliseconds to keep checking for an action inside the freeze hook before
+-- falling back to the per-frame poll (saves up to one frame of latency).
+local spin_ms = 0
 
 local function read_file(path)
     local file = io.open(path, "r", true)
@@ -102,8 +105,9 @@ end
 local function apply_settings()
     local content = read_file(SETTINGS)
     if content == nil then return false end
-    local draw_line, settings_line = string.match(content, "([^\n]*)\n([^\n]*)")
+    local draw_line, settings_line, spin_line = string.match(content, "([^\n]*)\n([^\n]*)\n?([^\n]*)")
     if settings_line == nil then return false end
+    spin_ms = tonumber(spin_line) or 0
     local draw_game = draw_line == "1"
     if draw_game ~= drawing then
         drawing = draw_game
@@ -151,20 +155,30 @@ local function make_move(actions)
     set_grip_info(1, BODYPARTS.R_HAND, actions[NUM_JOINTS + 1 + offset])
 end
 
-local function request_action()
+local function take_action()
+    local action = read_file(ACTION)
+    if action == nil then return false end
+    make_move(split_numbers(action))
+    waiting_for_action = false
+    step_game()
+    return true
+end
+
+local function request_action(spin)
     if waiting_for_action or waiting_for_reset then return end
     write_file(STATE, build_state() .. "\n")
     waiting_for_action = true
+    if spin and spin_ms > 0 then
+        local deadline = os.clock() + spin_ms / 1000
+        while os.clock() < deadline do
+            if take_action() then return end
+        end
+    end
 end
 
 local function poll_bridge()
     if waiting_for_action then
-        local action = read_file(ACTION)
-        if action ~= nil then
-            make_move(split_numbers(action))
-            waiting_for_action = false
-            step_game()
-        end
+        take_action()
     elseif waiting_for_reset and read_file(RESET) ~= nil then
         if apply_settings() then
             waiting_for_reset = false
@@ -189,12 +203,14 @@ local function start_game()
             run_cmd("reset")
         end
     else
-        request_action()
+        -- Do not spin here: stepping from the new_game hook advances a
+        -- different number of frames than stepping from pre_draw.
+        request_action(false)
     end
 end
 
 close_menu()
 add_hook("new_game", "torille_native", start_game)
-add_hook("enter_freeze", "torille_native", request_action)
+add_hook("enter_freeze", "torille_native", function() request_action(true) end)
 add_hook("pre_draw", "torille_native", poll_bridge)
 run_cmd("loadmod classic")

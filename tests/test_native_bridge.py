@@ -76,3 +76,52 @@ def test_steam_process_reports_liveness():
 
     with patch("torille.torille.os.kill", side_effect=ProcessLookupError):
         assert not process.is_alive()
+
+
+@pytest.mark.parametrize("use_inotify", [True, False])
+def test_receive_state_wakes_promptly_on_write(tmp_path, use_inotify):
+    bridge = NativeFileBridge(tmp_path, poll_interval=0.001, use_inotify=use_inotify)
+    bridge.prepare()
+    delays = []
+    for _ in range(20):
+        written = []
+
+        def write(written=written):
+            time.sleep(0.02)
+            bridge.state_path.write_text("1,2,3\n")
+            written.append(time.perf_counter())
+
+        writer = threading.Thread(target=write)
+        writer.start()
+        assert bridge.receive_state(timeout=2) == b"1,2,3\n"
+        received = time.perf_counter()
+        writer.join()
+        delays.append(received - written[0])
+    # A 10 ms sleep would average 5 ms; waiting must not be much slower than that
+    assert sorted(delays)[len(delays) // 2] < 0.004
+    bridge.cleanup()
+
+
+def test_receive_state_falls_back_to_polling_without_inotify(tmp_path):
+    bridge = NativeFileBridge(tmp_path)
+    bridge.prepare()
+    with patch("torille.torille._StateWatcher", side_effect=OSError("no inotify")):
+        bridge.state_path.write_text("1,2,3\n")
+        assert bridge.receive_state(timeout=1) == b"1,2,3\n"
+    assert not bridge.use_inotify
+
+
+def test_state_written_before_waiting_is_not_lost(bridge):
+    bridge._get_watcher()
+    bridge.state_path.write_text("1,2,3\n")
+    # The event is queued; the state is returned without waiting out a timeout
+    start = time.monotonic()
+    assert bridge.receive_state(timeout=5) == b"1,2,3\n"
+    assert time.monotonic() - start < 0.5
+
+
+def test_settings_file_carries_spin_window(tmp_path):
+    bridge = NativeFileBridge(tmp_path, spin_ms=7.5)
+    bridge.prepare()
+    bridge.write_settings(False, [1, 2])
+    assert bridge.settings_path.read_text() == "0\n1,2\n7.5\n"
