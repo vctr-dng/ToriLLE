@@ -32,6 +32,7 @@ from gymnasium import spaces
 from gymnasium.utils import seeding
 
 from .. import constants, torille
+from ..capture import capture_observation_space
 from .duo_envs import reward_injury_player1_pov, reward_win_player1_pov
 
 AGENTS = ("player_0", "player_1")
@@ -62,7 +63,7 @@ def _body_space():
     )
 
 
-def observation_space(match_frames):
+def observation_space(match_frames, capture_size=None):
     """
     Per-agent observation space (the same for both agents).
 
@@ -78,16 +79,20 @@ def observation_space(match_frames):
             grips: (2,) left and right hand grip, 0 or 1.
         match_frame: (1,) frames played so far, in [0, match_frames].
         frames_next_turn: (1,) frames the next turn lasts.
+        rgb: only with `capture_size`: (capture_size, capture_size, 3) uint8
+            frame of the game window at the turn boundary. It is the same
+            picture for both agents (the game has one camera).
     """
     frames = spaces.Box(0.0, float(match_frames), (1,), np.float32)
-    return spaces.Dict(
-        {
-            "self": _body_space(),
-            "opponent": _body_space(),
-            "match_frame": frames,
-            "frames_next_turn": spaces.Box(0.0, float(match_frames), (1,), np.float32),
-        }
-    )
+    observation = {
+        "self": _body_space(),
+        "opponent": _body_space(),
+        "match_frame": frames,
+        "frames_next_turn": spaces.Box(0.0, float(match_frames), (1,), np.float32),
+    }
+    if capture_size is not None:
+        observation["rgb"] = capture_observation_space(capture_size)
+    return spaces.Dict(observation)
 
 
 def _body_observation(state, normalized, frame, body):
@@ -169,6 +174,13 @@ class TwoPlayerToriEnv:
             `f(old_state, new_state) -> float` giving the reward of
             `player_0`. `player_1` always receives the negative, so the
             rewards sum to zero.
+        draw_game: Render at a watchable frame rate (see `ToribashControl`).
+        render_mode: None or "rgb_array" (`render()` returns the latest frame).
+        capture_size: Side of the square RGB frame. If given, every agent's
+            observation gets an `rgb` key. `render_mode="rgb_array"` alone
+            captures 256 px frames for `render()` only. Capture needs
+            `draw_game=True`, see `torille.capture` and docs/envs.md.
+        capture_crop: "center" (square crop of the window) or "letterbox".
         **settings: Toribash settings, e.g. `matchframes` (default 1000) and
             `turnframes` (default 5).
 
@@ -186,13 +198,20 @@ class TwoPlayerToriEnv:
     """
 
     possible_agents = list(AGENTS)  # noqa: RUF012
-    metadata = {"name": "toribash_two_player_v0"}  # noqa: RUF012
+    metadata = {  # noqa: RUF012
+        "name": "toribash_two_player_v0",
+        "render_modes": [None, "rgb_array"],
+    }
 
     def __init__(
         self,
         executable=None,
         install_native_controller=True,
         reward="injury",
+        draw_game=False,
+        render_mode=None,
+        capture_size=None,
+        capture_crop="center",
         **settings,
     ):
         if callable(reward):
@@ -203,19 +222,38 @@ class TwoPlayerToriEnv:
             raise ValueError(
                 f"reward must be one of {list(REWARDS)} or a callable, got {reward!r}"
             )
+        if render_mode not in self.metadata["render_modes"]:
+            raise ValueError(
+                f"render_mode must be one of {self.metadata['render_modes']}, "
+                f"got {render_mode!r}"
+            )
+        self.render_mode = render_mode
+        self.capture_rgb_observation = capture_size is not None
+        if render_mode == "rgb_array" and capture_size is None:
+            capture_size = 256
+        self.capture_size = capture_size
         settings.setdefault("matchframes", 1000)
         settings.setdefault("turnframes", 5)
         self.settings = torille.ToribashSettings(**settings)
         self.game = torille.ToribashControl(
             settings=self.settings,
+            draw_game=draw_game,
             executable=executable,
             install_native_controller=install_native_controller,
+            capture_size=capture_size,
+            capture_crop=capture_crop,
         )
+        self._frame = None
+        self._frame_match_frame = None
+        self._current_state = None
         self.agents = []
         self._old_state = None
         self._started = False
         self._np_random = None
-        self._observation_space = observation_space(self.settings.get("matchframes"))
+        self._observation_space = observation_space(
+            self.settings.get("matchframes"),
+            capture_size if self.capture_rgb_observation else None,
+        )
         self._action_space = action_space()
 
     def observation_space(self, agent):
@@ -246,11 +284,35 @@ class TwoPlayerToriEnv:
             raise RuntimeError("Can't change rendering after first `reset()`")
         self.game.draw_game = visibility
 
+    def _capture_frame(self, state):
+        """Frame of the displayed state `state` (grabbed once per state)."""
+        if self._frame is None or self._frame_match_frame != state.match_frame:
+            self._frame = self.game.grab_frame()
+            self._frame_match_frame = state.match_frame
+        return self._frame
+
     def _observations(self, state):
-        return {
+        self._current_state = state
+        observations = {
             agent: agent_observation(state, player)
             for player, agent in enumerate(AGENTS)
         }
+        if self.capture_rgb_observation:
+            for observation in observations.values():
+                observation["rgb"] = self._capture_frame(state).copy()
+        return observations
+
+    def render(self):
+        """
+        With `render_mode="rgb_array"`: the `(capture_size, capture_size, 3)`
+        uint8 frame of the current turn boundary (state of the last `reset()`
+        or `step()`). Otherwise None.
+        """
+        if self.render_mode != "rgb_array":
+            return None
+        if self._current_state is None:
+            raise RuntimeError("`render` was called before `reset`.")
+        return self._capture_frame(self._current_state).copy()
 
     def reset(self, seed=None, options=None):
         """
@@ -267,6 +329,7 @@ class TwoPlayerToriEnv:
             state, _terminal = self.game.get_state()
         else:
             state = self.game.reset()
+        self._frame = None
         self._old_state = state
         self.agents = list(AGENTS)
         return self._observations(state), {agent: {} for agent in AGENTS}

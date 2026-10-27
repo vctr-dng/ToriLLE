@@ -125,3 +125,10 @@ def test_settings_file_carries_spin_window(tmp_path):
     bridge.prepare()
     bridge.write_settings(False, [1, 2])
     assert bridge.settings_path.read_text() == "0\n1,2\n7.5\n"
+
+
+def test_settings_file_carries_the_fixed_camera_flag(tmp_path):
+    bridge = NativeFileBridge(tmp_path, spin_ms=0)
+    bridge.prepare()
+    bridge.write_settings(True, [1, 2], fixed_camera=True)
+    assert bridge.settings_path.read_text() == "1\n1,2\n0\n1\n"

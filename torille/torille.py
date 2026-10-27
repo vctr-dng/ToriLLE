@@ -40,7 +40,7 @@ from typing import ClassVar
 import numpy as np
 from filelock import FileLock
 
-from . import constants, utils
+from . import capture, constants, utils
 
 _IN_CLOSE_WRITE = 0x00000008
 _IN_MOVED_TO = 0x00000080
@@ -132,10 +132,11 @@ class NativeFileBridge:
         temporary_path.write_text(content, encoding="utf-8")
         temporary_path.replace(path)
 
-    def write_settings(self, draw_game, settings):
+    def write_settings(self, draw_game, settings, fixed_camera=False):
         self._write(
             self.settings_path,
-            f"{int(draw_game)}\n{','.join(map(str, settings))}\n{self.spin_ms}\n",
+            f"{int(draw_game)}\n{','.join(map(str, settings))}\n{self.spin_ms}\n"
+            + ("1\n" if fixed_camera else ""),
         )
 
     def send_actions(self, actions):
@@ -467,6 +468,8 @@ class ToribashControl:
         poll_interval=0.001,
         use_inotify=True,
         spin_ms=5.0,
+        capture_size=None,
+        capture_crop="center",
     ):
         """
         Parameters:
@@ -488,7 +491,14 @@ class ToribashControl:
             spin_ms: Native bridge only. Milliseconds the game script keeps
                      checking for the next action inside its freeze hook
                      before falling back to its per-frame poll. 0 disables.
+            capture_size: Native bridge only. If set, `grab_frame()` returns RGB
+                          frames of this size (see `torille.capture`). Needs
+                          `draw_game=True`; the game camera is fixed.
+            capture_crop: "center" or "letterbox", see `torille.capture`.
         """
+        self.capture_size = capture_size
+        self.capture_crop = capture_crop
+        self._frame_capture = None
         self.process = None
         self.connection = None
         self.native_bridge = None
@@ -590,7 +600,11 @@ class ToribashControl:
             self._installed_script = None
 
     def _write_native_settings(self):
-        self.native_bridge.write_settings(self.draw_game, self.settings.settings)
+        self.native_bridge.write_settings(
+            self.draw_game,
+            self.settings.settings,
+            fixed_camera=self.capture_size is not None,
+        )
 
     def _native_game_pids(self):
         executable = os.path.realpath(self.executable_path)
@@ -634,6 +648,12 @@ class ToribashControl:
         # Use global filelock to avoid mixing up Toribash instances with
         # corresponding Python scripts if we have multiple Toribashes running.
         # Create lock here to make code pickle-able before call to init.
+        if self.capture_size is not None:
+            if sys.platform != "linux":
+                raise RuntimeError("RGB capture is only implemented for Linux (X11)")
+            capture.validate_capture_options(
+                self.draw_game, self.capture_size, self.capture_crop
+            )
         init_lock = FileLock(self.lock_file, timeout=constants.TIMEOUT)
         with init_lock:
             if sys.platform == "linux":
@@ -703,6 +723,9 @@ class ToribashControl:
         # No need to be gentle here
         process = self.process
         self.process = None
+        if self._frame_capture is not None:
+            self._frame_capture.close()
+            self._frame_capture = None
         try:
             if process is not None:
                 process.kill()
@@ -800,6 +823,22 @@ class ToribashControl:
         s, terminal, winner = self._recv_state()
         s = ToribashState(s, winner)
         return s, terminal
+
+    def grab_frame(self):
+        """
+        RGB frame of the game as it is displayed now: `(capture_size,
+        capture_size, 3)` uint8. Between `get_state()` and `make_actions()` the
+        game is paused, so this is the frame of the state just returned.
+        Needs `capture_size` and `draw_game=True`.
+        """
+        self._check_if_initialized()
+        if self.capture_size is None:
+            raise RuntimeError("Frame capture is off: set `capture_size`")
+        if self._frame_capture is None:
+            self._frame_capture = capture.FrameCapture(
+                self.capture_size, self.capture_crop
+            ).start(self.process.is_alive)
+        return self._frame_capture.grab()
 
     def reset(self):
         """
