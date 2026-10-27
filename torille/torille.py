@@ -74,12 +74,14 @@ class NativeFileBridge:
     def request_reset(self):
         self._write(self.reset_path, "reset\n")
 
-    def receive_state(self, timeout):
+    def receive_state(self, timeout, is_alive=None):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
                 state = self.state_path.read_text(encoding="utf-8")
             except FileNotFoundError:
+                if is_alive is not None and not is_alive():
+                    raise RuntimeError("Native Toribash exited unexpectedly")
                 time.sleep(0.01)
                 continue
             # The Lua side cannot rename files, so it truncates and rewrites
@@ -87,6 +89,8 @@ class NativeFileBridge:
             if state.endswith("\n"):
                 self.state_path.unlink(missing_ok=True)
                 return state.encode()
+            if is_alive is not None and not is_alive():
+                raise RuntimeError("Native Toribash exited unexpectedly")
             time.sleep(0.01)
         raise TimeoutError("Timed out waiting for state from native Toribash")
 
@@ -96,6 +100,15 @@ class NativeSteamProcess:
 
     def __init__(self, pid):
         self.pid = pid
+
+    def is_alive(self):
+        try:
+            os.kill(self.pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
 
     def kill(self):
         try:
@@ -573,7 +586,9 @@ class ToribashControl:
         Call recv till data ends with ToribashConstant.MESSAGE_END
         """
         if self.native_bridge is not None:
-            return self.native_bridge.receive_state(constants.TIMEOUT)
+            return self.native_bridge.receive_state(
+                constants.TIMEOUT, self.process.is_alive
+            )
         # First wait till there is something to read
         ret = s.recv(constants.BUFFER_SIZE)
         # Now check if we had "\n", and continue reading till we have it
