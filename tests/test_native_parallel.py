@@ -1,12 +1,15 @@
 """Several games at once in direct launch mode. Run with `pytest -m native`.
 
 Needs Toribash, Xvfb and a running Steam client (the games use it for Steamworks IPC).
+Every game runs on its own Xvfb display, never on the desktop; run with `DISPLAY` unset
+(`env -u DISPLAY uv run pytest -m native tests/test_native_parallel.py`) to be sure.
 The instances use copies of the game directory and their own Xvfb displays, and do not
 take the global game lock themselves (the native session lock of `conftest.py` is held
 anyway while this file runs).
 """
 
 import itertools
+import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -35,7 +38,17 @@ def _require_direct_launch():
         pytest.skip("The Steam client is not running (direct launch needs it)")
 
 
+def assert_not_the_desktop(kwargs):
+    """Never open a game window on the user's desktop: Xvfb displays only."""
+    desktop = {":0", os.environ.get("DISPLAY")}
+    for key in ("display", "capture_display"):
+        assert kwargs[key] not in desktop, f"{key}={kwargs[key]} is the desktop"
+        assert kwargs[key].startswith(":")
+    assert kwargs["launch_mode"] == "direct"
+
+
 def make_env(kwargs, **options):
+    assert_not_the_desktop(kwargs)
     return TwoPlayerToriEnv(
         draw_game=True,
         capture_size=SIZE,
@@ -114,23 +127,3 @@ def test_two_instances_play_at_the_same_time():
     assert not root.exists()
     assert (real_game / "profile.tbs").read_text() == real_profile
     assert not (real_game / ".torille").exists()
-
-
-def test_direct_instance_runs_next_to_a_steam_launched_game():
-    """Default (Steam) launch and a direct copy at the same time."""
-    with InstancePool(1) as pool:
-        steam_env = TwoPlayerToriEnv(matchframes=30, turnframes=5)  # default launch
-        direct_env = make_env(pool[0], matchframes=30)
-        try:
-            steam_env.reset(seed=0)
-            frames, joints, _ = play_episode(direct_env, 0, 0)
-            np.testing.assert_array_equal(joints[-1], np.full(20, 1))
-            assert all(f.std() > 5 for f in frames)
-            actions = {a: np.full(22, 3) for a in AGENTS}
-            observations, *_ = steam_env.step(actions)
-            np.testing.assert_array_equal(
-                observations["player_0"]["self"]["joint_states"], np.full(20, 4)
-            )
-        finally:
-            direct_env.close()
-            steam_env.close()

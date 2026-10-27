@@ -5,7 +5,8 @@
 For each N: make an `InstancePool(N)` (copies of the game, one Xvfb each), start one worker
 process per instance, wait until all games run, then let all of them play random
 `TwoPlayerToriEnv` episodes (`draw_game=True`, `turnframes=5`) for the same time window and
-sum the turns. Prints one JSON line per N with the load average before and after, since the
+sum the turns. Every game runs on its own Xvfb display (never `:0` or `$DISPLAY`: the script refuses);
+run it with `env -u DISPLAY`. Prints one JSON line per N with the load average before and after, since the
 machine is usually shared. Direct instances use their own copies and do not take
 `/tmp/toribash-game.lock`.
 """
@@ -21,7 +22,14 @@ from torille.envs.two_player import AGENTS, TwoPlayerToriEnv
 from torille.pool import InstancePool
 
 
+def refuse_desktop(kwargs):
+    desktop = {":0", os.environ.get("DISPLAY")}
+    if kwargs["display"] in desktop or kwargs["capture_display"] in desktop:
+        raise SystemExit(f"refusing to run a game on the desktop display: {kwargs}")
+
+
 def worker(kwargs, seconds, size):
+    refuse_desktop(kwargs)
     env = TwoPlayerToriEnv(
         draw_game=True,
         capture_size=size,
