@@ -1,0 +1,31 @@
+[project]
+name = "torille"
+version = "1.0.2"
+description = "Toribash as an agent learning environment"
+readme = "README.md"
+requires-python = ">=3.14"
+authors = [
+    { name = "Anssi 'Miffyli' Kanervisto", email = "anssk@cs.uef.fi" },
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: Unix",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "filelock>=4.2.4",
+    "gymnasium>=1.4.0",
+    "numpy>=2.5.4",
+]
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
