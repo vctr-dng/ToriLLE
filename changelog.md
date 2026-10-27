@@ -1,5 +1,11 @@
 ### Unreleased
 
+* New two-player control API, `torille.envs.TwoPlayerToriEnv` (PettingZoo-style
+  parallel API without the dependency): both players' actions come from
+  outside, each agent (`player_0`, `player_1`) gets its own mirrored `self` /
+  `opponent` observation, a zero-sum reward (`"injury"` or `"win"`, or a
+  callable), done flags and the winner in `info`. See docs/envs.md and
+  `examples/two_player_example.py`.
 * New `observation_type="dict"` flag for all environments: a `Dict` observation
   with positions, velocities, joint states, grips, `match_frame` and
   `frames_next_turn` for both players (see docs/envs.md). The default
