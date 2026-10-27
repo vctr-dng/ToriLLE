@@ -1,5 +1,13 @@
 ### Unreleased
 
+* Lower native per-turn overhead (turns/s on DestroyUke, random actions:
+  40 -> 67 with `draw_game=False, turnframes=1`, 18 -> 31 with `draw_game=True`,
+  19 -> 24 with `turnframes=5`; see docs/hacking.md). Python now wakes on an inotify
+  event instead of sleeping 10 ms, and the Lua script picks up the action inside the
+  freeze hook for `spin_ms` (default 5) before falling back to its per-frame poll.
+  New `ToribashControl` / `NativeFileBridge` arguments `poll_interval`, `use_inotify`
+  and `spin_ms`. Smaller poll intervals alone and fewer file operations were measured
+  and did not matter beyond that.
 * New `observation_type="dict"` flag for all environments: a `Dict` observation
   with positions, velocities, joint states, grips, `match_frame` and
   `frames_next_turn` for both players (see docs/envs.md). The default
