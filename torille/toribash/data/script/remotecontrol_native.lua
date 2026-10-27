@@ -10,6 +10,12 @@ local RESET = BRIDGE .. "reset"
 
 local NUM_JOINTS = 20
 local NUM_LIMBS = 21
+
+-- Training mode runs as fast as possible, watching mode limits the frame rate.
+local OPTIONS_NO_RENDERING = { fixedframerate = 0 }
+local OPTIONS_RENDERING = { fixedframerate = 1 }
+
+local drawing = nil
 local first_game = true
 local waiting_for_action = false
 local waiting_for_reset = false
@@ -86,11 +92,23 @@ local function build_state()
     return table.concat(state, ",")
 end
 
+local function apply_render_options(draw_game)
+    local options = draw_game and OPTIONS_RENDERING or OPTIONS_NO_RENDERING
+    for option, value in pairs(options) do
+        set_option(option, value)
+    end
+end
+
 local function apply_settings()
     local content = read_file(SETTINGS)
     if content == nil then return false end
-    local _, settings_line = string.match(content, "([^\n]*)\n([^\n]*)")
+    local draw_line, settings_line = string.match(content, "([^\n]*)\n([^\n]*)")
     if settings_line == nil then return false end
+    local draw_game = draw_line == "1"
+    if draw_game ~= drawing then
+        drawing = draw_game
+        apply_render_options(draw_game)
+    end
     local settings = split_strings(settings_line)
     if settings[21] ~= game_mod then
         game_mod = settings[21]
